@@ -1,0 +1,75 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Reference the base directory where common resources are defined
+resources:
+- ../../base
+
+# Set the production namespace
+namespace: borrow-rate-engine-prod
+
+# Apply strategic patches
+patchesStrategicMerge:
+- configmap-patch.yaml
+- hpa-patch.yaml
+
+# Generate additional ConfigMaps for production-specific configuration
+configMapGenerator:
+- name: production-environment-config
+  literals:
+  - ENVIRONMENT=production
+  - LOG_LEVEL=INFO
+  - ENABLE_SWAGGER=false
+  - ENABLE_METRICS=true
+  - ENABLE_TRACING=true
+  - ENABLE_FALLBACK=true
+  - ENABLE_CACHE=true
+  - ENABLE_AUDIT_LOGGING=true
+
+# Set replica counts for production environment
+replicas:
+- name: api-gateway
+  count: 5
+- name: calculation-service
+  count: 5
+- name: data-service
+  count: 5
+- name: cache-service
+  count: 3
+- name: audit-service
+  count: 3
+
+# Define container images for the production environment
+images:
+- name: ${ECR_REPO}/api-gateway
+  newName: 123456789012.dkr.ecr.us-east-1.amazonaws.com/borrow-rate-engine/api-gateway
+  newTag: production
+- name: ${ECR_REPO}/calculation-service
+  newName: 123456789012.dkr.ecr.us-east-1.amazonaws.com/borrow-rate-engine/calculation-service
+  newTag: production
+- name: ${ECR_REPO}/data-service
+  newName: 123456789012.dkr.ecr.us-east-1.amazonaws.com/borrow-rate-engine/data-service
+  newTag: production
+- name: ${ECR_REPO}/cache-service
+  newName: 123456789012.dkr.ecr.us-east-1.amazonaws.com/borrow-rate-engine/cache-service
+  newTag: production
+- name: ${ECR_REPO}/audit-service
+  newName: 123456789012.dkr.ecr.us-east-1.amazonaws.com/borrow-rate-engine/audit-service
+  newTag: production
+
+# Define variables that can be used in resources
+vars:
+- name: ENV
+  objref:
+    kind: ConfigMap
+    name: production-environment-config
+    apiVersion: v1
+  fieldref:
+    fieldpath: data.ENVIRONMENT
+- name: TIMESTAMP
+  objref:
+    kind: ConfigMap
+    name: production-environment-config
+    apiVersion: v1
+  fieldref:
+    fieldpath: metadata.creationTimestamp
