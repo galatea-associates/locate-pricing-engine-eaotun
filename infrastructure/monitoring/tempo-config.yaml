@@ -1,0 +1,121 @@
+# Tempo configuration for Borrow Rate & Locate Fee Pricing Engine
+# Version: 2.1.0+
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9096
+  http_server_read_timeout: 30s
+  http_server_write_timeout: 30s
+  grpc_server_max_recv_msg_size: 4194304
+  grpc_server_max_send_msg_size: 4194304
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+    jaeger:
+      protocols:
+        thrift_http:
+          endpoint: 0.0.0.0:14268
+        grpc:
+          endpoint: 0.0.0.0:14250
+    zipkin:
+      endpoint: 0.0.0.0:9411
+  log_received_spans:
+    enabled: true
+    include_all_attributes: false
+    filter_by_status_error: true
+
+ingester:
+  max_block_duration: 5m
+  max_block_bytes: 268435456  # 256 MiB
+  trace_idle_period: 10s
+  flush_check_period: 30s
+  complete_block_timeout: 5m
+
+compactor:
+  compaction:
+    block_retention: 336h  # 14 days retention as per requirements
+    compacted_block_retention: 48h
+    compaction_window: 1h
+    compaction_interval: 5m
+    max_compaction_objects: 1000000
+    max_block_bytes: 107374182400  # 100 GiB
+
+storage:
+  trace:
+    backend: local  # Using local storage for this config
+    block:
+      bloom_filter_false_positive: 0.05
+      index_downsample_bytes: 1000
+      encoding: zstd
+    wal:
+      path: /tmp/tempo/wal
+      encoding: snappy
+    local:
+      path: /tmp/tempo/blocks
+    pool:
+      max_workers: 100
+      queue_depth: 10000
+
+querier:
+  frontend_worker:
+    frontend_address: tempo-query-frontend:9095
+    debounce_duration: 5s
+    grpc_client_config:
+      max_recv_msg_size: 104857600  # 100 MiB
+      max_send_msg_size: 16777216   # 16 MiB
+  max_concurrent_queries: 20
+  query_timeout: 2m
+  search:
+    max_duration: 336h  # Match retention period
+    max_bytes_per_tag_values_query: 5242880  # 5 MiB
+
+metrics_generator:
+  processor:
+    service_graphs:
+      histogram_buckets: [0.1, 0.2, 0.5, 1, 2, 5, 10]  # in seconds
+      dimensions: ["service", "span_kind"]
+    span_metrics:
+      histogram_buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10]  # in seconds
+      dimensions: ["service", "span_name", "span_kind", "status_code"]
+  registry:
+    collection_interval: 15s
+    external_labels:
+      source: tempo
+      cluster: borrow-rate-engine
+      environment: ${ENV}
+  storage:
+    path: /tmp/tempo/generator/wal
+    remote_write:
+      enabled: true
+      client:
+        url: http://prometheus:9090/api/v1/write
+        timeout: 10s
+        queue_config:
+          capacity: 1000
+          max_shards: 200
+          min_shards: 1
+          max_samples_per_send: 100
+
+overrides:
+  metrics_generator_processors: ["service-graphs", "span-metrics"]
+  ingestion_rate_limit_bytes: 15728640  # 15 MiB
+  ingestion_burst_size_bytes: 20971520  # 20 MiB
+  max_traces_per_user: 100000
+  max_global_traces_per_user: 1000000
+  max_bytes_per_trace: 5242880  # 5 MiB
+  max_search_bytes_per_trace: 1048576  # 1 MiB
+  max_bytes_per_tag_values_query: 5242880  # 5 MiB
+
+usage_report:
+  reporting_enabled: false
+
+search_enabled: true
+metrics_generator_enabled: true
