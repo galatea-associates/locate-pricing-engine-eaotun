@@ -1,0 +1,259 @@
+# Prometheus configuration for Borrow Rate & Locate Fee Pricing Engine
+# Version: 2.45.0+
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+  external_labels:
+    cluster: borrow-rate-engine
+    environment: ${ENV}
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+      scheme: http
+      timeout: 5s
+      api_version: v2
+
+# Rule files for alerting and recording rules
+rule_files:
+  - /etc/prometheus/rules/api_gateway_rules.yml
+  - /etc/prometheus/rules/calculation_service_rules.yml
+  - /etc/prometheus/rules/data_service_rules.yml
+  - /etc/prometheus/rules/cache_service_rules.yml
+  - /etc/prometheus/rules/database_rules.yml
+  - /etc/prometheus/rules/system_rules.yml
+  - /etc/prometheus/rules/business_rules.yml
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+    metrics_path: /metrics
+
+  # API Gateway metrics
+  - job_name: api-gateway
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: ["borrow-rate-engine"]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_component]
+        regex: api-gateway
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        regex: true
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: ${1}
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        target_label: __address__
+        replacement: ${1}:${2}
+      - source_labels: [__meta_kubernetes_pod_label_environment]
+        target_label: environment
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: go_.*
+        action: drop
+
+  # Calculation Service metrics
+  - job_name: calculation-service
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: ["borrow-rate-engine"]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_component]
+        regex: calculation-service
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        regex: true
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: ${1}
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        target_label: __address__
+        replacement: ${1}:${2}
+      - source_labels: [__meta_kubernetes_pod_label_environment]
+        target_label: environment
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+
+  # Data Service metrics
+  - job_name: data-service
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: ["borrow-rate-engine"]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_component]
+        regex: data-service
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        regex: true
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: ${1}
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        target_label: __address__
+        replacement: ${1}:${2}
+      - source_labels: [__meta_kubernetes_pod_label_environment]
+        target_label: environment
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+
+  # Cache Service metrics
+  - job_name: cache-service
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: ["borrow-rate-engine"]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_component]
+        regex: cache-service
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        regex: true
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: ${1}
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        target_label: __address__
+        replacement: ${1}:${2}
+      - source_labels: [__meta_kubernetes_pod_label_environment]
+        target_label: environment
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+
+  # Audit Service metrics
+  - job_name: audit-service
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: ["borrow-rate-engine"]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_component]
+        regex: audit-service
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        regex: true
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: ${1}
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        target_label: __address__
+        replacement: ${1}:${2}
+      - source_labels: [__meta_kubernetes_pod_label_environment]
+        target_label: environment
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+
+  # Node exporter metrics for system-level monitoring
+  - job_name: node-exporter
+    kubernetes_sd_configs:
+      - role: node
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      insecure_skip_verify: true
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/${1}/proxy/metrics/node
+
+  # Kubernetes state metrics
+  - job_name: kube-state-metrics
+    static_configs:
+      - targets: ["kube-state-metrics.kube-system.svc.cluster.local:8080"]
+    metric_relabel_configs:
+      - source_labels: [namespace]
+        regex: borrow-rate-engine
+        action: keep
+
+  # Redis cache metrics
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+    metrics_path: /metrics
+
+  # PostgreSQL database metrics
+  - job_name: postgresql
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+    metrics_path: /metrics
+
+  # RabbitMQ message queue metrics
+  - job_name: rabbitmq
+    static_configs:
+      - targets: ["rabbitmq-exporter:9419"]
+    metrics_path: /metrics
+
+  # External API monitoring with blackbox exporter
+  - job_name: external-api-monitor
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - https://seclend-api.example.com/health
+        - https://market-data-api.example.com/health
+        - https://event-calendar-api.example.com/health
+        labels:
+          service: external-apis
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: target
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+# Storage configuration
+storage:
+  tsdb:
+    path: /prometheus
+    retention: 30d
+    retention_size: 10GB
+
+# Remote storage integration for long-term storage with Thanos
+remote_write:
+  - url: http://thanos-receive:19291/api/v1/receive
+    queue_config:
+      capacity: 10000
+      max_shards: 200
+      min_shards: 1
+      max_samples_per_send: 2000
+
+remote_read:
+  - url: http://thanos-query:10902/api/v1/read
+    read_recent: true
