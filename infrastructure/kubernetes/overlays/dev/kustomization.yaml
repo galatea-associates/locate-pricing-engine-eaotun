@@ -1,0 +1,67 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Reference the base resources
+resources:
+- ../../base
+
+# Set the namespace for development environment
+namespace: borrow-rate-engine-dev
+
+# Apply strategic patches for the development environment
+patchesStrategicMerge:
+- configmap-patch.yaml
+
+# Generate environment-specific ConfigMap
+configMapGenerator:
+- name: dev-environment-config
+  literals:
+  - ENVIRONMENT=development
+  - LOG_LEVEL=DEBUG
+  - ENABLE_SWAGGER=true
+  - ENABLE_METRICS=true
+  - ENABLE_TRACING=true
+  - ENABLE_FALLBACK=true
+  - ENABLE_CACHE=true
+  - ENABLE_AUDIT_LOGGING=true
+
+# Configure replica counts for services in development
+replicas:
+- name: api-gateway
+  count: 2
+- name: calculation-service
+  count: 2
+- name: data-service
+  count: 2
+- name: cache-service
+  count: 1
+- name: audit-service
+  count: 1
+
+# Set image references for the development environment
+images:
+- name: ${ECR_REPO}/api-gateway
+  newName: 123456789012.dkr.ecr.us-east-1.amazonaws.com/borrow-rate-engine/api-gateway
+  newTag: development
+- name: ${ECR_REPO}/calculation-service
+  newName: 123456789012.dkr.ecr.us-east-1.amazonaws.com/borrow-rate-engine/calculation-service
+  newTag: development
+- name: ${ECR_REPO}/data-service
+  newName: 123456789012.dkr.ecr.us-east-1.amazonaws.com/borrow-rate-engine/data-service
+  newTag: development
+- name: ${ECR_REPO}/cache-service
+  newName: 123456789012.dkr.ecr.us-east-1.amazonaws.com/borrow-rate-engine/cache-service
+  newTag: development
+- name: ${ECR_REPO}/audit-service
+  newName: 123456789012.dkr.ecr.us-east-1.amazonaws.com/borrow-rate-engine/audit-service
+  newTag: development
+
+# Define variables for the Kustomize configuration
+vars:
+- name: ENV
+  objref:
+    kind: ConfigMap
+    name: dev-environment-config
+    apiVersion: v1
+  fieldref:
+    fieldpath: data.ENVIRONMENT
