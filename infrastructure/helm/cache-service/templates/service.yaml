@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cache-service.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cache-service.labels" . | nindent 4 }}
+  annotations:
+    description: "Cache Service for Borrow Rate & Locate Fee Pricing Engine"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "{{ .Values.service.metricsPort | default "9090" }}"
+    prometheus.io/path: "/metrics"
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort | default .Values.service.port }}
+      protocol: TCP
+      name: redis
+    {{- if .Values.service.metricsPort }}
+    - port: {{ .Values.service.metricsPort }}
+      targetPort: {{ .Values.service.metricsPort }}
+      protocol: TCP
+      name: metrics
+    {{- end }}
+  selector:
+    {{- include "cache-service.selectorLabels" . | nindent 4 }}
+  sessionAffinity: {{ .Values.service.sessionAffinity | default "None" }}
