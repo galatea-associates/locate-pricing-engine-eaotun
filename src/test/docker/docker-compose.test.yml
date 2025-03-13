@@ -1,0 +1,207 @@
+version: "3.8"  # docker-compose: version 3.8 - Specifies the version of the Docker Compose file format
+
+services:
+  test-runner:
+    build:
+      context: ../..
+      dockerfile: src/test/docker/Dockerfile.test  # Dockerfile.test - Defines the container image for running automated tests
+    volumes:
+      - ./test-results:/app/test-results  # Mounts a volume to persist test results
+    environment:
+      - API_URL=http://api:8000  # Sets the API URL for the test runner
+      - TEST_ENV=test  # Sets the test environment variable
+      - PYTHONPATH=/app  # Sets the Python path
+      - PYTHONUNBUFFERED=1  # Ensures that Python output is not buffered
+    depends_on:
+      api:
+        condition: service_healthy  # Depends on the API service being healthy
+      db:
+        condition: service_healthy  # Depends on the database service being healthy
+      redis:
+        condition: service_healthy  # Depends on the Redis service being healthy
+      seclend-api:
+        condition: service_healthy  # Depends on the SecLend API service being healthy
+      market-api:
+        condition: service_healthy  # Depends on the Market API service being healthy
+      event-api:
+        condition: service_healthy  # Depends on the Event API service being healthy
+    networks:
+      - test-network  # Connects the test runner to the test network
+    # Runs automated tests against the API and its dependencies
+    
+  load-test-runner:
+    build:
+      context: ../..
+      dockerfile: src/test/docker/Dockerfile.load_test  # Dockerfile.load_test - Defines the container image for running load tests
+    volumes:
+      - ./test-results:/app/results  # Mounts a volume to persist load test results
+    environment:
+      - LOCUST_HOST=http://api:8000  # Sets the Locust host to the API service
+      - LOCUST_USERS=100  # Sets the number of Locust users
+      - LOCUST_SPAWN_RATE=10  # Sets the Locust spawn rate
+      - LOCUST_RUN_TIME=5m  # Sets the Locust run time
+      - PYTHONUNBUFFERED=1  # Ensures that Python output is not buffered
+    ports:
+      - "8089:8089"  # Exposes the Locust web UI port
+    depends_on:
+      api:
+        condition: service_healthy  # Depends on the API service being healthy
+    networks:
+      - test-network  # Connects the load test runner to the test network
+    # Runs load tests against the API to verify performance requirements
+    
+  api:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile  # Uses the backend's Dockerfile to build the API image
+    ports:
+      - "8000:8000"  # Exposes the API service port
+    environment:
+      - APP_NAME=Borrow Rate & Locate Fee Pricing Engine  # Sets the application name
+      - API_VERSION=v1  # Sets the API version
+      - ENVIRONMENT=test  # Sets the environment to test
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/borrow_rate_engine_test  # Sets the database URL
+      - REDIS_URL=redis://redis:6379/0  # Sets the Redis URL
+      - SECLEND_API_BASE_URL=http://seclend-api:8001/api  # Sets the SecLend API base URL
+      - SECLEND_API_KEY=test_key  # Sets the SecLend API key
+      - SECLEND_API_TIMEOUT=2  # Sets the SecLend API timeout
+      - MARKET_VOLATILITY_API_BASE_URL=http://market-api:8002/api  # Sets the Market Volatility API base URL
+      - MARKET_VOLATILITY_API_KEY=test_key  # Sets the Market Volatility API key
+      - MARKET_VOLATILITY_API_TIMEOUT=2  # Sets the Market Volatility API timeout
+      - EVENT_CALENDAR_API_BASE_URL=http://event-api:8003/api  # Sets the Event Calendar API base URL
+      - EVENT_CALENDAR_API_KEY=test_key  # Sets the Event Calendar API key
+      - EVENT_CALENDAR_API_TIMEOUT=2  # Sets the Event Calendar API timeout
+      - DEFAULT_CACHE_TTL=60  # Sets the default cache TTL
+      - DEFAULT_RATE_LIMIT=100  # Sets the default rate limit
+      - LOG_LEVEL=INFO  # Sets the log level
+      - PYTHONPATH=/app  # Sets the Python path
+    depends_on:
+      db:
+        condition: service_healthy  # Depends on the database service being healthy
+      redis:
+        condition: service_healthy  # Depends on the Redis service being healthy
+      seclend-api:
+        condition: service_healthy  # Depends on the SecLend API service being healthy
+      market-api:
+        condition: service_healthy  # Depends on the Market API service being healthy
+      event-api:
+        condition: service_healthy  # Depends on the Event API service being healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]  # Defines a health check command
+      interval: 10s  # Sets the health check interval
+      timeout: 5s  # Sets the health check timeout
+      retries: 3  # Sets the number of retries
+      start_period: 5s  # Sets the start period
+    networks:
+      - test-network  # Connects the API service to the test network
+    # The main API service being tested
+    
+  db:
+    image: postgres:15-alpine  # Uses the PostgreSQL 15 alpine image
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data  # Mounts a volume for persistent database storage
+    environment:
+      - POSTGRES_USER=postgres  # Sets the PostgreSQL user
+      - POSTGRES_PASSWORD=postgres  # Sets the PostgreSQL password
+      - POSTGRES_DB=borrow_rate_engine_test  # Sets the PostgreSQL database name
+    ports:
+      - "5433:5432"  # Exposes the PostgreSQL port
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]  # Defines a health check command
+      interval: 5s  # Sets the health check interval
+      timeout: 3s  # Sets the health check timeout
+      retries: 5  # Sets the number of retries
+      start_period: 5s  # Sets the start period
+    networks:
+      - test-network  # Connects the database service to the test network
+    # PostgreSQL database for test data storage
+    
+  redis:
+    image: redis:7-alpine  # Uses the Redis 7 alpine image
+    volumes:
+      - redis_test_data:/data  # Mounts a volume for persistent Redis storage
+    ports:
+      - "6380:6379"  # Exposes the Redis port
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]  # Defines a health check command
+      interval: 5s  # Sets the health check interval
+      timeout: 3s  # Sets the health check timeout
+      retries: 5  # Sets the number of retries
+      start_period: 3s  # Sets the start period
+    command: redis-server --appendonly yes  # Enables append-only mode for data persistence
+    networks:
+      - test-network  # Connects the Redis service to the test network
+    # Redis cache for testing caching functionality
+    
+  seclend-api:
+    build:
+      context: ../mock_servers/seclend_api
+      dockerfile: ../docker/Dockerfile.mock_servers  # Dockerfile.mock_servers - Defines the container image for mock external APIs
+    ports:
+      - "8001:8001"  # Exposes the SecLend API mock server port
+    environment:
+      - PORT=8001  # Sets the port for the SecLend API mock server
+      - FAILURE_RATE=0  # Sets the failure rate for the SecLend API mock server
+      - DELAY_RATE=0  # Sets the delay rate for the SecLend API mock server
+      - LOG_LEVEL=INFO  # Sets the log level for the SecLend API mock server
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]  # Defines a health check command
+      interval: 10s  # Sets the health check interval
+      timeout: 5s  # Sets the health check timeout
+      retries: 3  # Sets the number of retries
+      start_period: 5s  # Sets the start period
+    networks:
+      - test-network  # Connects the SecLend API mock server to the test network
+    # Mock server for SecLend API that provides borrow rates
+    
+  market-api:
+    build:
+      context: ../mock_servers/market_api
+      dockerfile: ../docker/Dockerfile.mock_servers  # Dockerfile.mock_servers - Defines the container image for mock external APIs
+    ports:
+      - "8002:8002"  # Exposes the Market Volatility API mock server port
+    environment:
+      - PORT=8002  # Sets the port for the Market Volatility API mock server
+      - FAILURE_RATE=0  # Sets the failure rate for the Market Volatility API mock server
+      - DELAY_RATE=0  # Sets the delay rate for the Market Volatility API mock server
+      - LOG_LEVEL=INFO  # Sets the log level for the Market Volatility API mock server
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]  # Defines a health check command
+      interval: 10s  # Sets the health check interval
+      timeout: 5s  # Sets the health check timeout
+      retries: 3  # Sets the number of retries
+      start_period: 5s  # Sets the start period
+    networks:
+      - test-network  # Connects the Market Volatility API mock server to the test network
+    # Mock server for Market Volatility API that provides volatility metrics
+    
+  event-api:
+    build:
+      context: ../mock_servers/event_api
+      dockerfile: ../docker/Dockerfile.mock_servers  # Dockerfile.mock_servers - Defines the container image for mock external APIs
+    ports:
+      - "8003:8003"  # Exposes the Event Calendar API mock server port
+    environment:
+      - PORT=8003  # Sets the port for the Event Calendar API mock server
+      - FAILURE_RATE=0  # Sets the failure rate for the Event Calendar API mock server
+      - DELAY_RATE=0  # Sets the delay rate for the Event Calendar API mock server
+      - LOG_LEVEL=INFO  # Sets the log level for the Event Calendar API mock server
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]  # Defines a health check command
+      interval: 10s  # Sets the health check interval
+      timeout: 5s  # Sets the health check timeout
+      retries: 3  # Sets the number of retries
+      start_period: 5s  # Sets the start period
+    networks:
+      - test-network  # Connects the Event Calendar API mock server to the test network
+    # Mock server for Event Calendar API that provides event risk data
+
+volumes:
+  postgres_test_data:  # Persistent storage for test database data
+  redis_test_data:  # Persistent storage for test cache data
+  test-results:  # Volume for storing test results and reports
+
+networks:
+  test-network:
+    driver: bridge  # Isolated network for test services
+    # Isolated network for test services
