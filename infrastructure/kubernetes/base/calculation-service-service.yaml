@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: calculation-service
+  namespace: borrow-rate-engine
+  labels:
+    app: borrow-rate-engine
+    component: calculation-service
+    environment: ${ENV}
+    managed-by: kustomize
+  annotations:
+    description: "Calculation Service for Borrow Rate & Locate Fee Pricing Engine"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app: borrow-rate-engine
+    component: calculation-service
+  sessionAffinity: None
