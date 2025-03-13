@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-service
+  namespace: borrow-rate-engine
+  labels:
+    app: borrow-rate-engine
+    component: data-service
+    environment: ${ENV}
+    managed-by: kustomize
+  annotations:
+    description: "Data Service for Borrow Rate & Locate Fee Pricing Engine"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app: borrow-rate-engine
+    component: data-service
+  sessionAffinity: None
