@@ -1,0 +1,338 @@
+# Load Testing Configuration for Borrow Rate & Locate Fee Pricing Engine
+# Version: 1.0.0
+
+# Environment configurations for different test targets
+environments:
+  development:
+    base_url: "https://dev-api.pricing-engine.example.com"
+    api_key: "${DEV_API_KEY}"
+    rate_limiting: true
+    rate_limit: 200  # requests per minute
+    log_level: "debug"
+    timeout: 30  # seconds
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      User-Agent: "LoadTest/1.0"
+
+  staging:
+    base_url: "https://staging-api.pricing-engine.example.com"
+    api_key: "${STAGING_API_KEY}"
+    rate_limiting: true
+    rate_limit: 600  # requests per minute
+    log_level: "info"
+    timeout: 30  # seconds
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      User-Agent: "LoadTest/1.0"
+
+  production:
+    base_url: "https://api.pricing-engine.example.com"
+    api_key: "${PROD_API_KEY}"
+    rate_limiting: true
+    rate_limit: 1200  # requests per minute
+    log_level: "warn"
+    timeout: 30  # seconds
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      User-Agent: "LoadTest/1.0"
+
+# Test scenarios to execute
+scenarios:
+  borrow_rate:
+    endpoint: "/api/v1/rates/{ticker}"
+    method: "GET"
+    weight: 0.4  # 40% of requests in mixed workload
+    params:
+      - name: "ticker"
+        source: "tickers"
+        distribution: "random"
+    response_validation:
+      status_code: 200
+      response_time_max: 100  # ms
+      content_validation:
+        - field: "current_rate"
+          type: "number"
+        - field: "borrow_status"
+          type: "string"
+          values: ["EASY", "MEDIUM", "HARD"]
+
+  calculate_fee:
+    endpoint: "/api/v1/calculate-locate"
+    method: "POST"
+    weight: 0.6  # 60% of requests in mixed workload
+    payload:
+      template: |
+        {
+          "ticker": "{ticker}",
+          "position_value": {position_value},
+          "loan_days": {loan_days},
+          "client_id": "{client_id}"
+        }
+      fields:
+        - name: "ticker"
+          source: "tickers"
+          distribution: "random"
+        - name: "position_value"
+          source: "position_values"
+          distribution: "random"
+        - name: "loan_days"
+          source: "loan_days"
+          distribution: "random"
+        - name: "client_id"
+          source: "client_ids"
+          distribution: "weighted"
+    response_validation:
+      status_code: 200
+      response_time_max: 100  # ms
+      content_validation:
+        - field: "status"
+          type: "string"
+          value: "success"
+        - field: "total_fee"
+          type: "number"
+        - field: "breakdown"
+          type: "object"
+        - field: "borrow_rate_used"
+          type: "number"
+
+  mixed_workload:
+    scenarios:
+      - name: "borrow_rate"
+        weight: 0.4
+      - name: "calculate_fee"
+        weight: 0.6
+    think_time:
+      min: 100  # ms
+      max: 500  # ms
+      distribution: "gaussian"
+
+# Test execution parameters
+test_execution:
+  load:
+    duration: 3600  # seconds (1 hour)
+    ramp_up: 300  # seconds (5 minutes)
+    ramp_down: 300  # seconds (5 minutes)
+    users: 100
+    requests_per_second: 1000
+    distribution: "constant"
+    terminate_on_failure: false
+    failure_threshold: 5  # %
+
+  stress:
+    duration: 1800  # seconds (30 minutes)
+    ramp_up: 300  # seconds (5 minutes)
+    ramp_down: 300  # seconds (5 minutes)
+    users: 200
+    requests_per_second:
+      start: 1000
+      end: 2500
+      step: 100
+      interval: 180  # seconds (3 minutes per step)
+    distribution: "ramp"
+    terminate_on_failure: true
+    failure_threshold: 10  # %
+
+  endurance:
+    duration: 86400  # seconds (24 hours)
+    ramp_up: 1800  # seconds (30 minutes)
+    ramp_down: 1800  # seconds (30 minutes)
+    users: 100
+    requests_per_second: 800
+    distribution: "constant"
+    terminate_on_failure: false
+    failure_threshold: 3  # %
+    checkpoints:
+      interval: 3600  # seconds (every hour)
+      metrics:
+        - name: "response_time_p95"
+          threshold: 150  # ms
+        - name: "error_rate"
+          threshold: 0.5  # %
+
+  spike:
+    duration: 900  # seconds (15 minutes)
+    phases:
+      - name: "baseline"
+        duration: 300  # seconds (5 minutes)
+        users: 100
+        requests_per_second: 800
+      - name: "spike"
+        duration: 300  # seconds (5 minutes)
+        users: 300
+        requests_per_second: 3000
+      - name: "recovery"
+        duration: 300  # seconds (5 minutes)
+        users: 100
+        requests_per_second: 800
+    terminate_on_failure: false
+    failure_threshold: 15  # %
+
+# Performance thresholds for test validation
+performance_thresholds:
+  response_time:
+    average: 50  # ms
+    p90: 80  # ms
+    p95: 100  # ms
+    p99: 150  # ms
+    max: 200  # ms
+  
+  throughput:
+    min: 950  # requests per second
+    target: 1000  # requests per second
+    sustained_min_duration: 300  # seconds
+  
+  error_rate:
+    warning: 0.1  # %
+    critical: 1.0  # %
+    test_failure: 5.0  # %
+  
+  resource_utilization:
+    cpu:
+      warning: 70  # %
+      critical: 85  # %
+    memory:
+      warning: 70  # %
+      critical: 85  # %
+    network:
+      warning: 70  # % of capacity
+      critical: 85  # % of capacity
+
+# Test data for load testing scenarios
+test_data:
+  tickers:
+    - symbol: "AAPL"
+      weight: 0.1
+      category: "EASY"
+    - symbol: "MSFT"
+      weight: 0.1
+      category: "EASY"
+    - symbol: "AMZN"
+      weight: 0.1
+      category: "EASY"
+    - symbol: "GOOGL"
+      weight: 0.1
+      category: "EASY"
+    - symbol: "META"
+      weight: 0.05
+      category: "EASY"
+    - symbol: "TSLA"
+      weight: 0.15
+      category: "MEDIUM"
+    - symbol: "GME"
+      weight: 0.2
+      category: "HARD"
+    - symbol: "AMC"
+      weight: 0.15
+      category: "HARD"
+    - symbol: "BBBY"
+      weight: 0.025
+      category: "HARD"
+    - symbol: "SPCE"
+      weight: 0.025
+      category: "HARD"
+  
+  client_ids:
+    - id: "big_fund_001"
+      weight: 0.3
+      profile: "institutional"
+    - id: "retail_broker_002"
+      weight: 0.4
+      profile: "retail"
+    - id: "hedge_fund_003"
+      weight: 0.2
+      profile: "institutional"
+    - id: "market_maker_004"
+      weight: 0.1
+      profile: "market_maker"
+  
+  position_values:
+    distribution: "log_normal"
+    parameters:
+      min: 10000  # $10,000
+      max: 10000000  # $10 million
+      mean: 100000  # $100,000
+      std_dev: 500000  # $500,000
+  
+  loan_days:
+    distribution: "weighted_range"
+    ranges:
+      - range: [1, 7]
+        weight: 0.5
+      - range: [8, 30]
+        weight: 0.3
+      - range: [31, 90]
+        weight: 0.15
+      - range: [91, 180]
+        weight: 0.05
+
+# Reporting configuration
+reporting:
+  output_dir: "./test-results"
+  formats:
+    - json
+    - csv
+    - html
+  
+  charts:
+    response_time:
+      title: "Response Time Distribution"
+      type: "histogram"
+      x_axis: "Response time (ms)"
+      y_axis: "Request count"
+      thresholds:
+        - name: "p95 SLA"
+          value: 100
+          color: "red"
+    
+    throughput:
+      title: "Throughput Over Time"
+      type: "line"
+      x_axis: "Time (s)"
+      y_axis: "Requests per second"
+      thresholds:
+        - name: "Target"
+          value: 1000
+          color: "green"
+    
+    error_rate:
+      title: "Error Rate Over Time"
+      type: "line"
+      x_axis: "Time (s)"
+      y_axis: "Error rate (%)"
+      thresholds:
+        - name: "Critical"
+          value: 1.0
+          color: "red"
+    
+    resource_usage:
+      title: "Resource Utilization"
+      type: "line"
+      x_axis: "Time (s)"
+      y_axis: "Utilization (%)"
+      series:
+        - name: "CPU"
+          color: "blue"
+        - name: "Memory"
+          color: "green"
+        - name: "Network"
+          color: "purple"
+  
+  notifications:
+    slack:
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+      channel: "#load-testing"
+      notify_on:
+        - test_start
+        - test_end
+        - threshold_breach
+    
+    email:
+      recipients:
+        - "performance-team@example.com"
+        - "sre-team@example.com"
+      notify_on:
+        - test_end
+        - threshold_breach
