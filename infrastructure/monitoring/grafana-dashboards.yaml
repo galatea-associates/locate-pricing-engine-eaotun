@@ -1,0 +1,873 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: dashboards
+data:
+  executive-dashboard.json: |
+    {
+      "title": "Executive Dashboard - Borrow Rate Engine",
+      "uid": "executive-dashboard",
+      "tags": ["overview", "executive", "sla"],
+      "timezone": "browser",
+      "refresh": "5m",
+      "schemaVersion": 36,
+      "version": 1,
+      "panels": [
+        {
+          "title": "System Health Status",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "min(up{namespace=\"borrow-rate-engine\"})"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "valueOptions": {
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {"text": "DOWN", "color": "red"},
+                    "1": {"text": "UP", "color": "green"}
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "title": "Component Status Heatmap",
+          "type": "heatmap",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "up{namespace=\"borrow-rate-engine\"}"
+            }
+          ],
+          "options": {
+            "calculate": false,
+            "yAxis": {
+              "format": "short",
+              "decimals": null,
+              "min": 0,
+              "max": 1
+            }
+          }
+        },
+        {
+          "title": "7-Day Availability Trend",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "avg(up{namespace=\"borrow-rate-engine\"}) * 100"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "single", "sort": "none"}
+          }
+        },
+        {
+          "title": "Daily Calculation Volume",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(increase(calculation_total[24h]))"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "single", "sort": "none"}
+          }
+        },
+        {
+          "title": "Average Fee Amount",
+          "type": "gauge",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "avg(calculation_fee_amount_sum / calculation_fee_amount_count)"
+            }
+          ],
+          "options": {
+            "orientation": "auto",
+            "reduceOptions": {
+              "values": false,
+              "calcs": ["mean"],
+              "fields": ""
+            },
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true
+          }
+        },
+        {
+          "title": "SLA Compliance",
+          "type": "gauge",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{namespace=\"borrow-rate-engine\", status=~\"2..\"}[1d])) / sum(rate(http_requests_total{namespace=\"borrow-rate-engine\"}[1d])) * 100"
+            }
+          ],
+          "options": {
+            "orientation": "auto",
+            "reduceOptions": {
+              "values": false,
+              "calcs": ["mean"],
+              "fields": ""
+            },
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "orange", "value": 99.8},
+                {"color": "yellow", "value": 99.9},
+                {"color": "green", "value": 99.95}
+              ]
+            }
+          }
+        },
+        {
+          "title": "Recent Incidents",
+          "type": "table",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "ALERTS{alertstate=\"firing\"}"
+            }
+          ],
+          "options": {
+            "showHeader": true,
+            "footer": {"show": false}
+          }
+        }
+      ]
+    }
+
+  operational-dashboard.json: |
+    {
+      "title": "Operational Dashboard - Borrow Rate Engine",
+      "uid": "operational-dashboard",
+      "tags": ["operations", "real-time"],
+      "timezone": "browser",
+      "refresh": "30s",
+      "schemaVersion": 36,
+      "version": 1,
+      "panels": [
+        {
+          "title": "Requests per Second",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{namespace=\"borrow-rate-engine\"}[1m])) by (service)"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "Response Time Distribution",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.5, sum(rate(http_request_duration_seconds_bucket{namespace=\"borrow-rate-engine\"}[5m])) by (le, service))",
+              "legendFormat": "p50 - {{service}}"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"borrow-rate-engine\"}[5m])) by (le, service))",
+              "legendFormat": "p95 - {{service}}"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{namespace=\"borrow-rate-engine\"}[5m])) by (le, service))",
+              "legendFormat": "p99 - {{service}}"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "Error Rates by Endpoint",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{namespace=\"borrow-rate-engine\", status=~\"5..\"}[5m])) by (path) / sum(rate(http_requests_total{namespace=\"borrow-rate-engine\"}[5m])) by (path)"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "CPU/Memory by Service",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"borrow-rate-engine\"}[5m])) by (pod)",
+              "legendFormat": "CPU - {{pod}}"
+            },
+            {
+              "expr": "sum(container_memory_usage_bytes{namespace=\"borrow-rate-engine\"}) by (pod) / 1024 / 1024",
+              "legendFormat": "Memory MB - {{pod}}"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "External API Status",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(external_api_requests_total{status=\"success\"}[5m])) by (api) / sum(rate(external_api_requests_total[5m])) by (api) * 100"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "orange", "value": 90},
+                {"color": "yellow", "value": 95},
+                {"color": "green", "value": 99}
+              ]
+            }
+          }
+        },
+        {
+          "title": "Cache Hit/Miss Ratio",
+          "type": "gauge",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(cache_hits_total[5m])) / (sum(rate(cache_hits_total[5m])) + sum(rate(cache_misses_total[5m]))) * 100"
+            }
+          ],
+          "options": {
+            "orientation": "auto",
+            "reduceOptions": {
+              "values": false,
+              "calcs": ["mean"],
+              "fields": ""
+            },
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "orange", "value": 75},
+                {"color": "yellow", "value": 85},
+                {"color": "green", "value": 90}
+              ]
+            }
+          }
+        }
+      ]
+    }
+
+  technical-dashboard.json: |
+    {
+      "title": "Technical Dashboard - Borrow Rate Engine",
+      "uid": "technical-dashboard",
+      "tags": ["technical", "engineering"],
+      "timezone": "browser",
+      "refresh": "30s",
+      "schemaVersion": 36,
+      "version": 1,
+      "panels": [
+        {
+          "title": "Calculation Service Latency",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.5, sum(rate(calculation_duration_seconds_bucket[5m])) by (le))",
+              "legendFormat": "p50"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(calculation_duration_seconds_bucket[5m])) by (le))",
+              "legendFormat": "p95"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(calculation_duration_seconds_bucket[5m])) by (le))",
+              "legendFormat": "p99"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "Data Service API Calls",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(external_api_requests_total[5m])) by (api)"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "Service Error Rates",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{namespace=\"borrow-rate-engine\", status=~\"5..\"}[5m])) by (service) / sum(rate(http_requests_total{namespace=\"borrow-rate-engine\"}[5m])) by (service)"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "Service Instance Count",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "count(kube_pod_info{namespace=\"borrow-rate-engine\"}) by (pod)"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "Query Performance",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(database_query_duration_seconds_bucket[5m])) by (le, query_type))"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "Connection Pool Status",
+          "type": "gauge",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(database_connections_used) / sum(database_connections_max) * 100"
+            }
+          ],
+          "options": {
+            "orientation": "auto",
+            "reduceOptions": {
+              "values": false,
+              "calcs": ["mean"],
+              "fields": ""
+            },
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 70},
+                {"color": "orange", "value": 80},
+                {"color": "red", "value": 90}
+              ]
+            }
+          }
+        },
+        {
+          "title": "Hit Rate by Key Pattern",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(cache_hits_total[5m])) by (key_pattern) / (sum(rate(cache_hits_total[5m])) by (key_pattern) + sum(rate(cache_misses_total[5m])) by (key_pattern)) * 100"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "Request Volume by Client",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{namespace=\"borrow-rate-engine\", path=\"/api/v1/calculate-locate\"}[5m])) by (client_id)"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        }
+      ]
+    }
+
+  api-gateway-dashboard.json: |
+    {
+      "title": "API Gateway Dashboard",
+      "uid": "api-gateway-dashboard",
+      "tags": ["service", "api-gateway"],
+      "timezone": "browser",
+      "refresh": "30s",
+      "schemaVersion": 36,
+      "version": 1,
+      "panels": [
+        {
+          "title": "Request Rate by Endpoint",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{namespace=\"borrow-rate-engine\", service=\"api-gateway\"}[1m])) by (path)"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "Response Time by Endpoint",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"borrow-rate-engine\", service=\"api-gateway\"}[5m])) by (le, path))"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "Authentication Success Rate",
+          "type": "gauge",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(authentication_success_total{namespace=\"borrow-rate-engine\"}[5m])) / sum(rate(authentication_attempts_total{namespace=\"borrow-rate-engine\"}[5m])) * 100"
+            }
+          ],
+          "options": {
+            "orientation": "auto",
+            "reduceOptions": {
+              "values": false,
+              "calcs": ["mean"],
+              "fields": ""
+            },
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "orange", "value": 95},
+                {"color": "yellow", "value": 98},
+                {"color": "green", "value": 99.5}
+              ]
+            }
+          }
+        },
+        {
+          "title": "Rate Limiting Events",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(rate_limit_exceeded_total{namespace=\"borrow-rate-engine\"}[5m])) by (client_id)"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        }
+      ]
+    }
+
+  calculation-service-dashboard.json: |
+    {
+      "title": "Calculation Service Dashboard",
+      "uid": "calculation-service-dashboard",
+      "tags": ["service", "calculation"],
+      "timezone": "browser",
+      "refresh": "30s",
+      "schemaVersion": 36,
+      "version": 1,
+      "panels": [
+        {
+          "title": "Calculation Rate",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(calculation_total{namespace=\"borrow-rate-engine\"}[1m])) by (type)"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "Calculation Duration",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.5, sum(rate(calculation_duration_seconds_bucket{namespace=\"borrow-rate-engine\"}[5m])) by (le, type))",
+              "legendFormat": "p50 - {{type}}"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(calculation_duration_seconds_bucket{namespace=\"borrow-rate-engine\"}[5m])) by (le, type))",
+              "legendFormat": "p95 - {{type}}"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(calculation_duration_seconds_bucket{namespace=\"borrow-rate-engine\"}[5m])) by (le, type))",
+              "legendFormat": "p99 - {{type}}"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "Formula Accuracy",
+          "type": "gauge",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(calculation_success_total{namespace=\"borrow-rate-engine\"}[5m])) / sum(rate(calculation_total{namespace=\"borrow-rate-engine\"}[5m])) * 100"
+            }
+          ],
+          "options": {
+            "orientation": "auto",
+            "reduceOptions": {
+              "values": false,
+              "calcs": ["mean"],
+              "fields": ""
+            },
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "orange", "value": 99},
+                {"color": "yellow", "value": 99.9},
+                {"color": "green", "value": 99.99}
+              ]
+            }
+          }
+        },
+        {
+          "title": "Cache Hit Rate",
+          "type": "gauge",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(cache_hits_total{namespace=\"borrow-rate-engine\", service=\"calculation-service\"}[5m])) / (sum(rate(cache_hits_total{namespace=\"borrow-rate-engine\", service=\"calculation-service\"}[5m])) + sum(rate(cache_misses_total{namespace=\"borrow-rate-engine\", service=\"calculation-service\"}[5m]))) * 100"
+            }
+          ],
+          "options": {
+            "orientation": "auto",
+            "reduceOptions": {
+              "values": false,
+              "calcs": ["mean"],
+              "fields": ""
+            },
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "orange", "value": 75},
+                {"color": "yellow", "value": 85},
+                {"color": "green", "value": 90}
+              ]
+            }
+          }
+        }
+      ]
+    }
+
+  business-metrics-dashboard.json: |
+    {
+      "title": "Business Metrics Dashboard",
+      "uid": "business-metrics-dashboard",
+      "tags": ["business", "financial"],
+      "timezone": "browser",
+      "refresh": "5m",
+      "schemaVersion": 36,
+      "version": 1,
+      "panels": [
+        {
+          "title": "Average Borrow Rate by Ticker",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "avg(borrow_rate) by (ticker)"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "Fee Distribution",
+          "type": "histogram",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(calculation_fee_amount_bucket[1h])) by (le)"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "single", "sort": "none"}
+          }
+        },
+        {
+          "title": "Client Usage Patterns",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{namespace=\"borrow-rate-engine\", path=\"/api/v1/calculate-locate\"}[1h])) by (client_id)"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "Fallback Usage",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(fallback_usage_total[1h])) by (type) / sum(rate(calculation_total[1h]))"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "Revenue Impact Estimate",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(calculation_fee_amount_sum)"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "textMode": "auto"
+          }
+        }
+      ]
+    }
+
+  logs-dashboard.json: |
+    {
+      "title": "Logs Dashboard",
+      "uid": "logs-dashboard",
+      "tags": ["logs", "troubleshooting"],
+      "timezone": "browser",
+      "refresh": "30s",
+      "schemaVersion": 36,
+      "version": 1,
+      "panels": [
+        {
+          "title": "Error Logs",
+          "type": "logs",
+          "datasource": "Loki",
+          "targets": [
+            {
+              "expr": "{namespace=\"borrow-rate-engine\"} |= \"ERROR\""
+            }
+          ],
+          "options": {
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true,
+            "prettifyLogMessage": true,
+            "enableLogDetails": true,
+            "dedupStrategy": "none"
+          }
+        },
+        {
+          "title": "Error Rate by Service",
+          "type": "timeseries",
+          "datasource": "Loki",
+          "targets": [
+            {
+              "expr": "sum(count_over_time({namespace=\"borrow-rate-engine\"} |= \"ERROR\" [1m])) by (service)"
+            }
+          ],
+          "options": {
+            "legend": {"showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          }
+        },
+        {
+          "title": "Audit Logs",
+          "type": "logs",
+          "datasource": "Loki",
+          "targets": [
+            {
+              "expr": "{namespace=\"borrow-rate-engine\", log_type=\"audit\"}"
+            }
+          ],
+          "options": {
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true,
+            "prettifyLogMessage": true,
+            "enableLogDetails": true,
+            "dedupStrategy": "none"
+          }
+        },
+        {
+          "title": "Calculation Logs",
+          "type": "logs",
+          "datasource": "Loki",
+          "targets": [
+            {
+              "expr": "{namespace=\"borrow-rate-engine\", service=\"calculation-service\"}"
+            }
+          ],
+          "options": {
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true,
+            "prettifyLogMessage": true,
+            "enableLogDetails": true,
+            "dedupStrategy": "none"
+          }
+        }
+      ]
+    }
+
+  traces-dashboard.json: |
+    {
+      "title": "Traces Dashboard",
+      "uid": "traces-dashboard",
+      "tags": ["traces", "troubleshooting"],
+      "timezone": "browser",
+      "refresh": "30s",
+      "schemaVersion": 36,
+      "version": 1,
+      "panels": [
+        {
+          "title": "Service Graph",
+          "type": "nodeGraph",
+          "datasource": "Tempo",
+          "targets": [
+            {
+              "expr": "service_graph"
+            }
+          ],
+          "options": {
+            "nodes": {"mainStatUnit": "ms"},
+            "edges": {"mainStatUnit": "ms"}
+          }
+        },
+        {
+          "title": "Slow Traces",
+          "type": "table",
+          "datasource": "Tempo",
+          "targets": [
+            {
+              "expr": "duration>100ms"
+            }
+          ],
+          "options": {
+            "showHeader": true,
+            "footer": {"show": false}
+          }
+        },
+        {
+          "title": "Error Traces",
+          "type": "table",
+          "datasource": "Tempo",
+          "targets": [
+            {
+              "expr": "status.code=500"
+            }
+          ],
+          "options": {
+            "showHeader": true,
+            "footer": {"show": false}
+          }
+        },
+        {
+          "title": "Trace Browser",
+          "type": "traces",
+          "datasource": "Tempo",
+          "targets": [
+            {
+              "expr": "service.name=\"api-gateway\""
+            }
+          ],
+          "options": {
+            "showLabels": true
+          }
+        }
+      ]
+    }
