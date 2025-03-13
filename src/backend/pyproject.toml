@@ -1,0 +1,89 @@
+[tool.poetry]
+name = "borrow-rate-pricing-engine"
+version = "0.1.0"
+description = "Borrow Rate & Locate Fee Pricing Engine for securities lending"
+authors = ["Financial Engineering Team <engineering@example.com>"]
+readme = "README.md"
+repository = "https://github.com/organization/borrow-rate-pricing-engine"
+packages = [
+    { include = "backend" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: OS Independent",
+    "Topic :: Office/Business :: Financial",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Private :: Do Not Upload"
+]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+fastapi = "^0.103.0"
+pydantic = "^2.4.0"
+sqlalchemy = "^2.0.0"
+alembic = "^1.11.0"
+psycopg2-binary = "^2.9.0"
+redis = "^4.5.0"
+uvicorn = "^0.23.0"
+httpx = "^0.25.0"
+python-dotenv = "^1.0.0"
+pandas = "^2.1.0"
+numpy = "^1.24.0"
+python-jose = "^3.3.0"
+passlib = "^1.7.4"
+bcrypt = "^4.0.1"
+gunicorn = "^21.2.0"
+sentry-sdk = "^1.29.0"
+opentelemetry-api = "^1.18.0"
+opentelemetry-sdk = "^1.18.0"
+opentelemetry-exporter-otlp = "^1.18.0"
+opentelemetry-instrumentation-fastapi = "^0.39.0"
+opentelemetry-instrumentation-sqlalchemy = "^0.39.0"
+opentelemetry-instrumentation-redis = "^0.39.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-cov = "^4.1.0"
+pytest-asyncio = "^0.21.0"
+black = "^23.7.0"
+isort = "^5.12.0"
+flake8 = "^6.1.0"
+mypy = "^1.5.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+include = "\\.py$"
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+
+[tool.pytest]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[tool.poetry.scripts]
+start = "uvicorn backend.main:app --reload"
+test = "pytest"
+lint = "flake8 backend tests"
+format = "black backend tests && isort backend tests"
+typecheck = "mypy backend"
+generate-api-key = "python -m backend.scripts.generate_api_key"
+seed-data = "python -m backend.scripts.seed_data"
+run-migrations = "python -m backend.scripts.run_migrations"
