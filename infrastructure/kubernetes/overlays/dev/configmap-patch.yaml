@@ -1,0 +1,111 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-gateway-config
+data:
+  LOG_LEVEL: "DEBUG"
+  ENABLE_SWAGGER: "true"
+  SWAGGER_URL: "/docs"
+  CORS_ORIGINS: "*"
+  CORS_METHODS: "GET,POST,PUT,DELETE,OPTIONS"
+  CORS_HEADERS: "Authorization,Content-Type,X-API-Key,X-Request-ID"
+  REQUEST_TIMEOUT: "30"
+  ENABLE_AUTH: "true"
+  AUTH_HEADER_NAME: "X-API-Key"
+  DEFAULT_RATE_LIMIT: "600"  # Higher rate limit for development
+  PREMIUM_RATE_LIMIT: "1200"
+  INTERNAL_RATE_LIMIT: "5000"
+  RATE_LIMIT_BURST: "300"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: calculation-service-config
+data:
+  LOG_LEVEL: "DEBUG"
+  ENABLE_TRACING: "true"
+  REQUEST_TIMEOUT: "30"
+  # Development environment uses slightly more aggressive adjustment factors for easier testing
+  VOLATILITY_ADJUSTMENT_FACTOR: "0.02"
+  EVENT_RISK_ADJUSTMENT_FACTOR: "0.01"
+  MIN_BORROW_RATE: "0.001"
+  DEFAULT_VOLATILITY_INDEX: "25.0"
+  DEFAULT_EVENT_RISK_FACTOR: "2"
+  # For development, we want detailed logging of all calculations
+  ENABLE_FORMULA_DEBUGGING: "true"
+  ENABLE_AUDIT_LOGGING: "true"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: data-service-config
+data:
+  LOG_LEVEL: "DEBUG"
+  ENABLE_TRACING: "true"
+  REQUEST_TIMEOUT: "30"
+  # Use mock APIs for development
+  SECLEND_API_BASE_URL: "http://mock-seclend-api:8080/api/v1"
+  MARKET_API_BASE_URL: "http://mock-market-api:8080/api/v1"
+  EVENT_API_BASE_URL: "http://mock-event-api:8080/api/v1"
+  # More aggressive circuit breaker settings for easier testing
+  CIRCUIT_BREAKER_FAILURE_THRESHOLD: "3"
+  CIRCUIT_BREAKER_RECOVERY_TIMEOUT: "30"
+  CIRCUIT_BREAKER_SUCCESS_THRESHOLD: "2"
+  # Always enable fallback in dev for testing
+  ENABLE_FALLBACK: "true"
+  # Connection pool settings for development
+  DB_POOL_SIZE: "5"
+  DB_MAX_OVERFLOW: "10"
+  DB_POOL_TIMEOUT: "15"
+  # Higher retry count for development
+  API_RETRY_COUNT: "5"
+  # Enable mock mode for development when real APIs are unavailable
+  ENABLE_MOCK_MODE: "true"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cache-service-config
+data:
+  LOG_LEVEL: "DEBUG"
+  ENABLE_TRACING: "true"
+  REQUEST_TIMEOUT: "10"
+  # Reduced TTLs for faster development iteration
+  BORROW_RATE_TTL: "60"       # 1 minute instead of 5
+  VOLATILITY_TTL: "120"       # 2 minutes instead of 15
+  EVENT_RISK_TTL: "300"       # 5 minutes instead of 60
+  BROKER_CONFIG_TTL: "300"    # 5 minutes instead of 30
+  CALCULATION_RESULT_TTL: "30" # 30 seconds instead of 60
+  # Enable local cache with larger size for development
+  ENABLE_LOCAL_CACHE: "true"
+  LOCAL_CACHE_MAX_SIZE: "2000"
+  LOCAL_CACHE_TTL: "30"       # 30 seconds instead of 60
+  # Enable cache stats for debugging
+  ENABLE_CACHE_STATS: "true"
+  # Enable cache warmup for development environment
+  CACHE_WARMUP_ON_STARTUP: "true"
+  # Use a different Redis database for dev
+  REDIS_DB: "1"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: audit-service-config
+data:
+  LOG_LEVEL: "DEBUG"
+  ENABLE_TRACING: "true"
+  REQUEST_TIMEOUT: "10"
+  # Smaller batch size for more frequent processing
+  AUDIT_BATCH_SIZE: "20"
+  AUDIT_PROCESSING_INTERVAL: "2"
+  # Disable S3 archiving in development
+  ENABLE_S3_ARCHIVING: "false"
+  # Shorter retention for dev environment
+  AUDIT_RETENTION_DAYS: "30"
+  # For development, simplify tamper protection
+  ENABLE_TAMPER_PROTECTION: "false"
+  # Enable development-specific reporting
+  ENABLE_COMPLIANCE_REPORTS: "true"
+  ENABLE_DEBUG_REPORTS: "true"
+  REPORT_GENERATION_CRON: "0 * * * *"  # Hourly for testing
