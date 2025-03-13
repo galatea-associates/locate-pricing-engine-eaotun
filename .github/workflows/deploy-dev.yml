@@ -1,0 +1,107 @@
+# .github/workflows/deploy-dev.yml
+name: Deploy to Development
+
+on:
+  push:
+    branches:
+      - develop
+      - 'feature/*'
+  workflow_dispatch:
+    description: Manual trigger for development deployment
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: borrow-rate-engine-dev
+  KUSTOMIZE_PATH: infrastructure/kubernetes/overlays/dev
+  NAMESPACE: borrow-rate-engine-dev
+
+jobs:
+  deploy-to-dev:
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3 # actions/checkout@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1 # aws-actions/amazon-ecr-login@v1
+        id: ecr-login
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3 # azure/setup-kubectl@v3
+        with:
+          version: v1.28.0
+      - name: Set Kubernetes Context
+        uses: azure/k8s-set-context@v2 # azure/k8s-set-context@v2
+        with:
+          method: aws
+          cluster-name: ${{ env.EKS_CLUSTER_NAME }}
+          cluster-type: eks
+      - name: Extract metadata
+        id: meta
+        run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+      - name: Update kustomization.yaml with new image tag
+        run: cd ${{ env.KUSTOMIZE_PATH }} && kustomize edit set image ${{ steps.ecr-login.outputs.registry }}/borrow-rate-engine:${{ steps.meta.outputs.sha_short }}
+      - name: Deploy to Kubernetes
+        uses: azure/k8s-deploy@v2 # azure/k8s-deploy@v2
+        with:
+          namespace: ${{ env.NAMESPACE }}
+          manifests: ${{ env.KUSTOMIZE_PATH }}
+          kubectl-version: v1.28.0
+          strategy: standard
+      - name: Verify Deployment
+        run: kubectl rollout status deployment/api-gateway -n ${{ env.NAMESPACE }} --timeout=300s
+      - name: Run Database Migrations
+        run: kubectl exec -n ${{ env.NAMESPACE }} deploy/api-gateway -- python -m src.backend.scripts.run_migrations --command upgrade
+      - name: Run Smoke Tests
+        run: src/test/scripts/run_smoke_tests.sh --environment development
+      - name: Notify Deployment Status
+        if: always()
+        uses: actions/github-script@v6 # actions/github-script@v6
+        with:
+          script: |
+            const { job, conclusion } = context.payload;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `Development deployment ${conclusion === 'success' ? 'succeeded' : 'failed'}. [View details](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`
+            });
+
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.sha_short }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3 # actions/checkout@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1 # aws-actions/amazon-ecr-login@v1
+        id: ecr-login
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2 # docker/setup-buildx-action@v2
+      - name: Extract metadata
+        id: meta
+        run: |
+          echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+          echo "::set-output name=tags::${{ steps.ecr-login.outputs.registry }}/borrow-rate-engine:$(git rev-parse --short HEAD)}\""
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v4 # docker/build-push-action@v4
+        with:
+          context: src/backend
+          file: src/backend/Dockerfile
+          push: true
+          tags: ${{ steps.ecr-login.outputs.registry }}/borrow-rate-engine:${{ steps.meta.outputs.sha_short }},${{ steps.ecr-login.outputs.registry }}/borrow-rate-engine:dev
+          cache-from: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/borrow-rate-engine:buildcache
+          cache-to: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/borrow-rate-engine:buildcache,mode=max
