@@ -1,0 +1,409 @@
+# src/test/ci/github_actions/nightly_test_workflow.yml
+name: Nightly Test Suite
+
+# This workflow is triggered daily at midnight (UTC) and also manually via workflow_dispatch.
+on:
+  schedule:
+    - cron: '0 0 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      run_integration_tests:
+        description: 'Run integration tests'
+        required: false
+        default: 'true'
+        type: boolean
+      run_e2e_tests:
+        description: 'Run end-to-end tests'
+        required: false
+        default: 'true'
+        type: boolean
+      run_performance_tests:
+        description: 'Run performance tests'
+        required: false
+        default: 'true'
+        type: boolean
+      run_security_tests:
+        description: 'Run security tests'
+        required: false
+        default: 'true'
+        type: boolean
+      run_compliance_tests:
+        description: 'Run compliance tests'
+        required: false
+        default: 'true'
+        type: boolean
+      failure_rate:
+        description: 'Percentage of mock API requests that should fail (0-100)'
+        required: false
+        default: '10'
+        type: number
+      delay_rate:
+        description: 'Percentage of mock API requests that should be delayed (0-100)'
+        required: false
+        default: '20'
+        type: number
+      target_rps:
+        description: 'Target requests per second for performance tests'
+        required: false
+        default: '1000'
+        type: number
+
+# Define global environment variables for the workflow
+env:
+  PYTHON_VERSION: '3.11'
+  DOCKER_REGISTRY: '${{ secrets.DOCKER_REGISTRY }}'
+  IMAGE_NAME: 'borrow-rate-engine'
+  MOCK_FAILURE_RATE: '10'
+  MOCK_DELAY_RATE: '20'
+  TARGET_RPS: '1000'
+  TEST_DURATION: '600'
+  CONCURRENT_USERS: '100'
+  TEST_TIMEOUT_MINUTES: '120'
+  SLACK_WEBHOOK_URL: '${{ secrets.SLACK_WEBHOOK_URL }}'
+
+jobs:
+  setup:
+    name: Setup Test Environment
+    runs-on: ubuntu-latest
+    outputs:
+      run_integration: ${{ steps.set-flags.outputs.run_integration }}
+      run_e2e: ${{ steps.set-flags.outputs.run_e2e }}
+      run_performance: ${{ steps.set-flags.outputs.run_performance }}
+      run_security: ${{ steps.set-flags.outputs.run_security }}
+      run_compliance: ${{ steps.set-flags.outputs.run_compliance }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3 # actions/checkout: v3
+      - name: Set test flags
+        id: set-flags
+        run: |
+          echo "run_integration=${{ github.event.inputs.run_integration_tests || 'true' }}" >> $GITHUB_OUTPUT
+          echo "run_e2e=${{ github.event.inputs.run_e2e_tests || 'true' }}" >> $GITHUB_OUTPUT
+          echo "run_performance=${{ github.event.inputs.run_performance_tests || 'true' }}" >> $GITHUB_OUTPUT
+          echo "run_security=${{ github.event.inputs.run_security_tests || 'true' }}" >> $GITHUB_OUTPUT
+          echo "run_compliance=${{ github.event.inputs.run_compliance_tests || 'true' }}" >> $GITHUB_OUTPUT
+      - name: Set environment variables
+        run: |
+          echo "MOCK_FAILURE_RATE=${{ github.event.inputs.failure_rate || env.MOCK_FAILURE_RATE }}" >> $GITHUB_ENV
+          echo "MOCK_DELAY_RATE=${{ github.event.inputs.delay_rate || env.MOCK_DELAY_RATE }}" >> $GITHUB_ENV
+          echo "TARGET_RPS=${{ github.event.inputs.target_rps || env.TARGET_RPS }}" >> $GITHUB_ENV
+
+  integration-tests:
+    name: Integration Tests
+    needs: setup
+    if: "${{ needs.setup.outputs.run_integration == 'true' }}"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3 # actions/checkout: v3
+      - name: Set up Python
+        uses: actions/setup-python@v4 # actions/setup-python: v4
+        with:
+          python-version: '${{ env.PYTHON_VERSION }}'
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2 # docker/setup-buildx-action: v2
+      - name: Login to Container Registry
+        uses: docker/login-action@v2 # docker/login-action: v2
+        with:
+          registry: '${{ env.DOCKER_REGISTRY }}'
+          username: '${{ secrets.REGISTRY_USERNAME }}'
+          password: '${{ secrets.REGISTRY_PASSWORD }}'
+      - name: Cache Python dependencies
+        uses: actions/cache@v3 # actions/cache: v3
+        with:
+          path: ~/.cache/pip
+          key: pip-integration-${{ hashFiles('src/test/requirements.txt') }}
+          restore-keys: |
+            pip-integration-
+      - name: Install dependencies
+        run: pip install -r src/test/requirements.txt
+      - name: Start mock servers
+        run: docker-compose -f src/test/mock_servers/docker-compose.yml up -d
+        env:
+          FAILURE_RATE: '${{ env.MOCK_FAILURE_RATE }}'
+          DELAY_RATE: '${{ env.MOCK_DELAY_RATE }}'
+      - name: Set up test environment
+        run: docker-compose -f src/test/docker/docker-compose.test.yml up -d
+      - name: Wait for services to be ready
+        run: sleep 15
+      - name: Run integration tests
+        run: src/test/scripts/run_integration_tests.sh --junit-report --html-report
+        env:
+          TEST_IMAGE: '${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest'
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v3 # actions/upload-artifact: v3
+        with:
+          name: integration-test-reports
+          path: src/test/reports/integration/
+          retention-days: 14
+      - name: Tear down test environment
+        if: always()
+        run: docker-compose -f src/test/docker/docker-compose.test.yml down -v && docker-compose -f src/test/mock_servers/docker-compose.yml down -v
+
+  e2e-tests:
+    name: End-to-End Tests
+    needs: setup
+    if: "${{ needs.setup.outputs.run_e2e == 'true' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: '${{ env.TEST_TIMEOUT_MINUTES }}'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3 # actions/checkout: v3
+      - name: Set up Python
+        uses: actions/setup-python@v4 # actions/setup-python: v4
+        with:
+          python-version: '${{ env.PYTHON_VERSION }}'
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2 # docker/setup-buildx-action: v2
+      - name: Login to Container Registry
+        uses: docker/login-action@v2 # docker/login-action: v2
+        with:
+          registry: '${{ env.DOCKER_REGISTRY }}'
+          username: '${{ secrets.REGISTRY_USERNAME }}'
+          password: '${{ secrets.REGISTRY_PASSWORD }}'
+      - name: Cache Python dependencies
+        uses: actions/cache@v3 # actions/cache: v3
+        with:
+          path: ~/.cache/pip
+          key: pip-e2e-${{ hashFiles('src/test/requirements.txt') }}
+          restore-keys: |
+            pip-e2e-
+      - name: Install dependencies
+        run: pip install -r src/test/requirements.txt
+      - name: Start mock servers
+        run: docker-compose -f src/test/mock_servers/docker-compose.yml up -d
+        env:
+          FAILURE_RATE: '${{ env.MOCK_FAILURE_RATE }}'
+          DELAY_RATE: '${{ env.MOCK_DELAY_RATE }}'
+      - name: Set up test environment
+        run: docker-compose -f src/test/docker/docker-compose.test.yml up -d
+      - name: Wait for services to be ready
+        run: sleep 30
+      - name: Run end-to-end tests
+        run: src/test/scripts/run_e2e_tests.sh --junit-report --html-report --markers="e2e"
+        env:
+          TEST_IMAGE: '${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest'
+          FAILURE_RATE: '${{ env.MOCK_FAILURE_RATE }}'
+          DELAY_RATE: '${{ env.MOCK_DELAY_RATE }}'
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v3 # actions/upload-artifact: v3
+        with:
+          name: e2e-test-reports
+          path: src/test/reports/e2e/
+          retention-days: 14
+      - name: Tear down test environment
+        if: always()
+        run: docker-compose -f src/test/docker/docker-compose.test.yml down -v && docker-compose -f src/test/mock_servers/docker-compose.yml down -v
+
+  performance-tests:
+    name: Performance Tests
+    needs: setup
+    if: "${{ needs.setup.outputs.run_performance == 'true' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: '${{ env.TEST_TIMEOUT_MINUTES }}'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3 # actions/checkout: v3
+      - name: Set up Python
+        uses: actions/setup-python@v4 # actions/setup-python: v4
+        with:
+          python-version: '${{ env.PYTHON_VERSION }}'
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2 # docker/setup-buildx-action: v2
+      - name: Login to Container Registry
+        uses: docker/login-action@v2 # docker/login-action: v2
+        with:
+          registry: '${{ env.DOCKER_REGISTRY }}'
+          username: '${{ secrets.REGISTRY_USERNAME }}'
+          password: '${{ secrets.REGISTRY_PASSWORD }}'
+      - name: Cache Python dependencies
+        uses: actions/cache@v3 # actions/cache: v3
+        with:
+          path: ~/.cache/pip
+          key: pip-performance-${{ hashFiles('src/test/requirements.txt') }}
+          restore-keys: |
+            pip-performance-
+      - name: Install dependencies
+        run: pip install -r src/test/requirements.txt
+      - name: Start mock servers
+        run: docker-compose -f src/test/mock_servers/docker-compose.yml up -d
+      - name: Set up test environment
+        run: docker-compose -f src/test/docker/docker-compose.test.yml up -d
+      - name: Wait for services to be ready
+        run: sleep 15
+      - name: Run performance tests
+        run: src/test/scripts/run_performance_tests.sh --target-rps=${{ env.TARGET_RPS }} --concurrent-users=${{ env.CONCURRENT_USERS }} --test-duration=${{ env.TEST_DURATION }}
+      - name: Upload performance test reports
+        if: always()
+        uses: actions/upload-artifact@v3 # actions/upload-artifact: v3
+        with:
+          name: performance-test-reports
+          path: src/test/reports/performance/
+          retention-days: 30
+      - name: Compare with previous results
+        if: success()
+        run: python src/test/metrics/visualizers/generate_charts.py --compare-with-previous=5 --output-dir=src/test/reports/performance/comparison
+      - name: Upload comparison reports
+        if: success()
+        uses: actions/upload-artifact@v3 # actions/upload-artifact: v3
+        with:
+          name: performance-comparison-reports
+          path: src/test/reports/performance/comparison/
+          retention-days: 30
+      - name: Check performance thresholds
+        run: python -c "import json; import sys; data = json.load(open('src/test/reports/performance/summary.json')); sys.exit(0 if data['overall_status'] == 'pass' else 1)"
+      - name: Tear down test environment
+        if: always()
+        run: docker-compose -f src/test/docker/docker-compose.test.yml down -v && docker-compose -f src/test/mock_servers/docker-compose.yml down -v
+
+  security-tests:
+    name: Security Tests
+    needs: setup
+    if: "${{ needs.setup.outputs.run_security == 'true' }}"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3 # actions/checkout: v3
+      - name: Set up Python
+        uses: actions/setup-python@v4 # actions/setup-python: v4
+        with:
+          python-version: '${{ env.PYTHON_VERSION }}'
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2 # docker/setup-buildx-action: v2
+      - name: Login to Container Registry
+        uses: docker/login-action@v2 # docker/login-action: v2
+        with:
+          registry: '${{ env.DOCKER_REGISTRY }}'
+          username: '${{ secrets.REGISTRY_USERNAME }}'
+          password: '${{ secrets.REGISTRY_PASSWORD }}'
+      - name: Cache Python dependencies
+        uses: actions/cache@v3 # actions/cache: v3
+        with:
+          path: ~/.cache/pip
+          key: pip-security-${{ hashFiles('src/test/requirements.txt') }}
+          restore-keys: |
+            pip-security-
+      - name: Install dependencies
+        run: pip install -r src/test/requirements.txt
+      - name: Start mock servers
+        run: docker-compose -f src/test/mock_servers/docker-compose.yml up -d
+      - name: Set up test environment
+        run: docker-compose -f src/test/docker/docker-compose.test.yml up -d
+      - name: Wait for services to be ready
+        run: sleep 15
+      - name: Run security tests
+        run: src/test/scripts/run_security_tests.sh --junit-report --html-report --markers="security" --skip-zap-scan
+        env:
+          TEST_IMAGE: '${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest'
+      - name: Upload security test reports
+        if: always()
+        uses: actions/upload-artifact@v3 # actions/upload-artifact: v3
+        with:
+          name: security-test-reports
+          path: src/test/reports/security/
+          retention-days: 14
+      - name: Tear down test environment
+        if: always()
+        run: docker-compose -f src/test/docker/docker-compose.test.yml down -v && docker-compose -f src/test/mock_servers/docker-compose.yml down -v
+
+  compliance-tests:
+    name: Compliance Tests
+    needs: setup
+    if: "${{ needs.setup.outputs.run_compliance == 'true' }}"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3 # actions/checkout: v3
+      - name: Set up Python
+        uses: actions/setup-python@v4 # actions/setup-python: v4
+        with:
+          python-version: '${{ env.PYTHON_VERSION }}'
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2 # docker/setup-buildx-action: v2
+      - name: Login to Container Registry
+        uses: docker/login-action@v2 # docker/login-action: v2
+        with:
+          registry: '${{ env.DOCKER_REGISTRY }}'
+          username: '${{ secrets.REGISTRY_USERNAME }}'
+          password: '${{ secrets.REGISTRY_PASSWORD }}'
+      - name: Cache Python dependencies
+        uses: actions/cache@v3 # actions/cache: v3
+        with:
+          path: ~/.cache/pip
+          key: pip-compliance-${{ hashFiles('src/test/requirements.txt') }}
+          restore-keys: |
+            pip-compliance-
+      - name: Install dependencies
+        run: pip install -r src/test/requirements.txt
+      - name: Start mock servers
+        run: docker-compose -f src/test/mock_servers/docker-compose.yml up -d
+      - name: Set up test environment
+        run: docker-compose -f src/test/docker/docker-compose.test.yml up -d
+      - name: Wait for services to be ready
+        run: sleep 15
+      - name: Run compliance tests
+        run: python -m pytest src/test/compliance_tests/ -v --markers="compliance" --html=src/test/reports/compliance/report.html --junitxml=src/test/reports/compliance/junit.xml
+        env:
+          TEST_IMAGE: '${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest'
+          GENERATE_REPORT: 'true'
+      - name: Generate compliance report
+        run: python src/test/compliance_tests/helpers/generate_compliance_report.py --output-dir=src/test/reports/compliance/
+      - name: Upload compliance reports
+        if: always()
+        uses: actions/upload-artifact@v3 # actions/upload-artifact: v3
+        with:
+          name: compliance-test-reports
+          path: src/test/reports/compliance/
+          retention-days: 90
+      - name: Tear down test environment
+        if: always()
+        run: docker-compose -f src/test/docker/docker-compose.test.yml down -v && docker-compose -f src/test/mock_servers/docker-compose.yml down -v
+
+  generate-report:
+    name: Generate Consolidated Report
+    needs: [integration-tests, e2e-tests, performance-tests, security-tests, compliance-tests, setup]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3 # actions/checkout: v3
+      - name: Set up Python
+        uses: actions/setup-python@v4 # actions/setup-python: v4
+        with:
+          python-version: '${{ env.PYTHON_VERSION }}'
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3 # actions/download-artifact: v3
+        with:
+          path: test-artifacts
+      - name: Install reporting dependencies
+        run: pip install jinja2 markdown
+      - name: Generate consolidated test report
+        run: python src/test/scripts/generate_test_report.py --input-dir test-artifacts --output-file nightly-test-report.html
+      - name: Upload consolidated report
+        uses: actions/upload-artifact@v3 # actions/upload-artifact: v3
+        with:
+          name: nightly-test-report
+          path: nightly-test-report.html
+          retention-days: 30
+      - name: Prepare Slack notification
+        id: slack-summary
+        uses: actions/github-script@v6 # actions/github-script: v6
+        with:
+          script: |
+            const fs = require('fs');
+            const testResults = JSON.parse(fs.readFileSync('test-artifacts/nightly-test-summary.json', 'utf8'));
+            const integrationStatus = ${{ needs.setup.outputs.run_integration == 'true' }} ? (${{ needs.integration-tests.result == 'success' }} ? '✅' : '❌') : '⏭️';
+            const e2eStatus = ${{ needs.setup.outputs.run_e2e == 'true' }} ? (${{ needs.e2e-tests.result == 'success' }} ? '✅' : '❌') : '⏭️';
+            const performanceStatus = ${{ needs.setup.outputs.run_performance == 'true' }} ? (${{ needs.performance-tests.result == 'success' }} ? '✅' : '❌') : '⏭️';
+            const securityStatus = ${{ needs.setup.outputs.run_security == 'true' }} ? (${{ needs.security-tests.result == 'success' }} ? '✅' : '❌') : '⏭️';
+            const complianceStatus = ${{ needs.setup.outputs.run_compliance == 'true' }} ? (${{ needs.compliance-tests.result == 'success' }} ? '✅' : '❌') : '⏭️';
+            const summary = `Nightly Test Results:\n- Integration Tests: ${integrationStatus}\n- E2E Tests: ${e2eStatus}\n- Performance Tests: ${performanceStatus}\n- Security Tests: ${securityStatus}\n- Compliance Tests: ${complianceStatus}`;
+            fs.writeFileSync('slack-payload.txt', summary);
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v1.23.0 # slackapi/slack-github-action: v1.23.0
+        with:
+          payload-file-path: 'slack-payload.txt'
+        env:
+          SLACK_WEBHOOK_URL: '${{ env.SLACK_WEBHOOK_URL }}'
