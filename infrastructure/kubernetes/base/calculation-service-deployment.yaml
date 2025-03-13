@@ -1,0 +1,198 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: calculation-service
+  namespace: borrow-rate-engine
+  labels:
+    app: borrow-rate-engine
+    component: calculation-service
+    environment: ${ENV}
+    managed-by: kustomize
+  annotations:
+    description: "Calculation Service for Borrow Rate & Locate Fee Pricing Engine"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: borrow-rate-engine
+      component: calculation-service
+  template:
+    metadata:
+      labels:
+        app: borrow-rate-engine
+        component: calculation-service
+        environment: ${ENV}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: calculation-service
+        image: ${ECR_REPO}/calculation-service:${VERSION}
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
+        env:
+        - name: ENVIRONMENT
+          value: ${ENV}
+        - name: LOG_LEVEL
+          value: ${LOG_LEVEL}
+        - name: DATA_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: calculation-service-config
+              key: DATA_SERVICE_URL
+        - name: CACHE_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: calculation-service-config
+              key: CACHE_SERVICE_URL
+        - name: ENABLE_METRICS
+          valueFrom:
+            configMapKeyRef:
+              name: calculation-service-config
+              key: ENABLE_METRICS
+        - name: ENABLE_TRACING
+          valueFrom:
+            configMapKeyRef:
+              name: calculation-service-config
+              key: ENABLE_TRACING
+        - name: VOLATILITY_ADJUSTMENT_FACTOR
+          valueFrom:
+            configMapKeyRef:
+              name: calculation-service-config
+              key: VOLATILITY_ADJUSTMENT_FACTOR
+        - name: EVENT_RISK_ADJUSTMENT_FACTOR
+          valueFrom:
+            configMapKeyRef:
+              name: calculation-service-config
+              key: EVENT_RISK_ADJUSTMENT_FACTOR
+        - name: MIN_BORROW_RATE
+          valueFrom:
+            configMapKeyRef:
+              name: calculation-service-config
+              key: MIN_BORROW_RATE
+        - name: DEFAULT_VOLATILITY_INDEX
+          valueFrom:
+            configMapKeyRef:
+              name: calculation-service-config
+              key: DEFAULT_VOLATILITY_INDEX
+        - name: DEFAULT_EVENT_RISK_FACTOR
+          valueFrom:
+            configMapKeyRef:
+              name: calculation-service-config
+              key: DEFAULT_EVENT_RISK_FACTOR
+        - name: ENABLE_FALLBACK
+          valueFrom:
+            configMapKeyRef:
+              name: calculation-service-config
+              key: ENABLE_FALLBACK
+        - name: CALCULATION_PRECISION
+          valueFrom:
+            configMapKeyRef:
+              name: calculation-service-config
+              key: CALCULATION_PRECISION
+        - name: ENABLE_AUDIT_LOGGING
+          valueFrom:
+            configMapKeyRef:
+              name: calculation-service-config
+              key: ENABLE_AUDIT_LOGGING
+        - name: AUDIT_QUEUE_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: calculation-service-config
+              key: AUDIT_QUEUE_NAME
+        - name: REDIS_HOST
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: host
+        - name: REDIS_PORT
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: port
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: password
+        - name: RABBITMQ_URL
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-credentials
+              key: url
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 2
+          successThreshold: 1
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/config
+        - name: tmp-volume
+          mountPath: /tmp
+      volumes:
+      - name: config-volume
+        configMap:
+          name: calculation-service-config
+      - name: tmp-volume
+        emptyDir: {}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: component
+                  operator: In
+                  values:
+                  - calculation-service
+              topologyKey: kubernetes.io/hostname
+          - weight: 50
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: component
+                  operator: In
+                  values:
+                  - calculation-service
+              topologyKey: topology.kubernetes.io/zone
+      terminationGracePeriodSeconds: 30
