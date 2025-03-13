@@ -1,0 +1,97 @@
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-gateway-pdb
+  namespace: borrow-rate-engine
+  labels:
+    app: borrow-rate-engine
+    component: api-gateway
+    environment: ${ENV}
+    managed-by: kustomize
+  annotations:
+    description: "PodDisruptionBudget for API Gateway to ensure high availability during voluntary disruptions"
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: borrow-rate-engine
+      component: api-gateway
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: calculation-service-pdb
+  namespace: borrow-rate-engine
+  labels:
+    app: borrow-rate-engine
+    component: calculation-service
+    environment: ${ENV}
+    managed-by: kustomize
+  annotations:
+    description: "PodDisruptionBudget for Calculation Service to ensure high availability during voluntary disruptions"
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: borrow-rate-engine
+      component: calculation-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: data-service-pdb
+  namespace: borrow-rate-engine
+  labels:
+    app: borrow-rate-engine
+    component: data-service
+    environment: ${ENV}
+    managed-by: kustomize
+  annotations:
+    description: "PodDisruptionBudget for Data Service to ensure high availability during voluntary disruptions"
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: borrow-rate-engine
+      component: data-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cache-service-pdb
+  namespace: borrow-rate-engine
+  labels:
+    app: borrow-rate-engine
+    component: cache-service
+    environment: ${ENV}
+    managed-by: kustomize
+  annotations:
+    description: "PodDisruptionBudget for Cache Service to ensure high availability during voluntary disruptions"
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: borrow-rate-engine
+      component: cache-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: audit-service-pdb
+  namespace: borrow-rate-engine
+  labels:
+    app: audit-service
+    component: audit
+    part-of: borrow-rate-engine
+    environment: ${ENV}
+    managed-by: kustomize
+  annotations:
+    description: "PodDisruptionBudget for Audit Service to ensure high availability during voluntary disruptions"
+    compliance: "SEC-Rule-17a-4"
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: audit-service
+      component: audit
