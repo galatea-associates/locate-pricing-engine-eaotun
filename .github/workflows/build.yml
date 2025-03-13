@@ -1,0 +1,131 @@
+name: Build and Test
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/*'
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+    description: Manual trigger for build workflow
+
+env:
+  PYTHON_VERSION: '3.11'
+  DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
+  IMAGE_NAME: borrow-rate-engine
+  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+jobs:
+  code-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code # actions/checkout@v3
+        uses: actions/checkout@v3 # Checkout repository code for building and testing
+      - name: Set up Python # actions/setup-python@v4
+        uses: actions/setup-python@v4 # Set up Python environment for running tests and linting
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Cache Python dependencies # actions/cache@v3
+        uses: actions/cache@v3 # Cache dependencies to speed up workflow execution
+        with:
+          path: ~/.cache/pip
+          key: pip-lint-${{ hashFiles('src/backend/requirements.txt') }}
+          restore-keys: |
+            pip-lint-
+      - name: Install dependencies
+        run: pip install flake8 black isort mypy
+      - name: Run linting
+        run: flake8 src/backend
+      - name: Check formatting
+        run: black --check src/backend && isort --check src/backend
+      - name: Run type checking
+        run: mypy src/backend
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    needs: [code-quality]
+    steps:
+      - name: Checkout code # actions/checkout@v3
+        uses: actions/checkout@v3 # Checkout repository code for building and testing
+      - name: Set up Python # actions/setup-python@v4
+        uses: actions/setup-python@v4 # Set up Python environment for running tests and linting
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Cache Python dependencies # actions/cache@v3
+        uses: actions/cache@v3 # Cache dependencies to speed up workflow execution
+        with:
+          path: ~/.cache/pip
+          key: pip-test-${{ hashFiles('src/backend/requirements.txt') }}
+          restore-keys: |
+            pip-test-
+      - name: Install dependencies
+        run: pip install -r src/backend/requirements.txt && pip install pytest pytest-cov pytest-asyncio
+      - name: Run unit tests
+        run: pytest src/backend/tests --cov=src/backend --cov-report=xml --cov-report=term-missing
+      - name: Check coverage thresholds
+        run: python -c "import xml.etree.ElementTree as ET; root = ET.parse('coverage.xml').getroot(); coverage = float(root.get('line-rate')) * 100; exit(1 if coverage < 90 else 0)"
+        if: ${{ github.event_name == 'pull_request' }}
+      - name: Upload coverage report # actions/upload-artifact@v3
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 7
+
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    steps:
+      - name: Checkout code # actions/checkout@v3
+        uses: actions/checkout@v3 # Checkout repository code for building and testing
+      - name: Run Snyk to check for vulnerabilities in dependencies # snyk/actions/python@v0.4.0
+        uses: snyk/actions/python@v0.4.0 # Scan Python dependencies for security vulnerabilities
+        env:
+          SNYK_TOKEN: ${{ env.SNYK_TOKEN }}
+        with:
+          command: test
+          args: --severity-threshold=high --file=src/backend/requirements.txt
+
+  build-image:
+    runs-on: ubuntu-latest
+    needs: [security-scan]
+    outputs:
+      image: ${{ steps.meta.outputs.tags }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout code # actions/checkout@v3
+        uses: actions/checkout@v3 # Checkout repository code for building and testing
+      - name: Set up Docker Buildx # docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v2
+      - name: Login to Container Registry # docker/login-action@v2
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - name: Extract metadata
+        id: meta
+        run: |
+          echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+          echo "::set-output name=tags::${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:$(git rev-parse --short HEAD)}""
+      - name: Build and push # docker/build-push-action@v4
+        id: build
+        uses: docker/build-push-action@v4
+        with:
+          context: src/backend
+          file: src/backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }},${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=registry,ref=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+      - name: Run Snyk to check Docker image for vulnerabilities # snyk/actions/docker@v0.4.0
+        uses: snyk/actions/docker@v0.4.0 # Scan Docker images for security vulnerabilities
+        env:
+          SNYK_TOKEN: ${{ env.SNYK_TOKEN }}
+        with:
+          image: ${{ steps.meta.outputs.tags }}
+          args: --severity-threshold=high
