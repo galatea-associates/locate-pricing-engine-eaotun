@@ -1,0 +1,98 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-gateway-config
+data:
+  LOG_LEVEL: "DEBUG"
+  ENABLE_METRICS: "true"
+  ENABLE_TRACING: "true"
+  REQUEST_TIMEOUT: "10"
+  DEFAULT_RATE_LIMIT: "120"
+  PREMIUM_RATE_LIMIT: "600"
+  INTERNAL_RATE_LIMIT: "2000"
+  CORS_ORIGINS: "*"
+  ENABLE_SWAGGER: "true"
+  ENABLE_AUTH: "true"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: calculation-service-config
+data:
+  LOG_LEVEL: "DEBUG"
+  ENABLE_METRICS: "true"
+  ENABLE_TRACING: "true"
+  REQUEST_TIMEOUT: "10"
+  VOLATILITY_ADJUSTMENT_FACTOR: "0.01"
+  EVENT_RISK_ADJUSTMENT_FACTOR: "0.005"
+  MIN_BORROW_RATE: "0.0025"
+  DEFAULT_VOLATILITY_INDEX: "20.0"
+  DEFAULT_EVENT_RISK_FACTOR: "0"
+  ENABLE_FALLBACK: "true"
+  CALCULATION_PRECISION: "6"
+  ENABLE_AUDIT_LOGGING: "true"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: data-service-config
+data:
+  LOG_LEVEL: "DEBUG"
+  ENABLE_METRICS: "true"
+  ENABLE_TRACING: "true"
+  REQUEST_TIMEOUT: "10"
+  DB_POOL_SIZE: "20"
+  DB_MAX_OVERFLOW: "40"
+  SECLEND_API_BASE_URL: "https://sandbox.seclend.com/api/v1"
+  MARKET_API_BASE_URL: "https://sandbox.marketdata.com/api/v1"
+  EVENT_API_BASE_URL: "https://sandbox.eventcalendar.com/api/v1"
+  ENABLE_CIRCUIT_BREAKER: "true"
+  CIRCUIT_BREAKER_FAILURE_THRESHOLD: "3"
+  CIRCUIT_BREAKER_RECOVERY_TIMEOUT: "30"
+  ENABLE_FALLBACK: "true"
+  ENABLE_CACHE: "true"
+  API_RETRY_COUNT: "5"
+  API_TIMEOUT: "10"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cache-service-config
+data:
+  LOG_LEVEL: "DEBUG"
+  ENABLE_METRICS: "true"
+  ENABLE_TRACING: "true"
+  REQUEST_TIMEOUT: "10"
+  REDIS_MAX_CONNECTIONS: "200"
+  BORROW_RATE_TTL: "180"
+  VOLATILITY_TTL: "600"
+  EVENT_RISK_TTL: "1800"
+  BROKER_CONFIG_TTL: "900"
+  CALCULATION_RESULT_TTL: "30"
+  ENABLE_LOCAL_CACHE: "true"
+  LOCAL_CACHE_MAX_SIZE: "2000"
+  LOCAL_CACHE_TTL: "30"
+  ENABLE_PUBSUB: "true"
+  ENABLE_CACHE_STATS: "true"
+  CACHE_WARMUP_ON_STARTUP: "true"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: audit-service-config
+data:
+  LOG_LEVEL: "DEBUG"
+  ENABLE_METRICS: "true"
+  ENABLE_TRACING: "true"
+  REQUEST_TIMEOUT: "10"
+  AUDIT_RETENTION_DAYS: "90"
+  AUDIT_BATCH_SIZE: "50"
+  AUDIT_PROCESSING_INTERVAL: "2"
+  ENABLE_S3_ARCHIVING: "true"
+  S3_BUCKET_NAME: "borrow-rate-engine-audit-logs-staging"
+  S3_ARCHIVE_INTERVAL_DAYS: "7"
+  ARCHIVE_OLDER_THAN_DAYS: "30"
+  ENABLE_TAMPER_PROTECTION: "true"
+  ENABLE_COMPLIANCE_REPORTS: "true"
+  REPORT_GENERATION_CRON: "0 0 * * *"
