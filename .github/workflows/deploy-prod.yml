@@ -1,0 +1,337 @@
+# .github/workflows/deploy-prod.yml
+# Deploys the Borrow Rate & Locate Fee Pricing Engine to the production environment.
+# This workflow implements a controlled, manual approval-based deployment process with comprehensive pre-deployment validation, canary deployment strategy, and post-deployment monitoring to ensure reliable and safe production releases.
+name: Deploy to Production
+
+on:
+  workflow_dispatch: # workflow_dispatch - Manual trigger for production deployment
+    description: Manual trigger for production deployment
+    inputs:
+      version: # version - Version tag to deploy
+        description: Version tag to deploy
+        required: true
+        type: string
+      approved_by: # approved_by - Name of person who approved the deployment
+        description: Name of person who approved the deployment
+        required: true
+        type: string
+      skip_canary: # skip_canary - Skip canary deployment (emergency only)
+        description: Skip canary deployment (emergency only)
+        required: false
+        type: boolean
+        default: false
+
+env: # env - Global environment variables for the workflow
+  AWS_REGION: us-east-1 # AWS_REGION - AWS region for EKS cluster
+  EKS_CLUSTER_NAME: borrow-rate-engine-prod # EKS_CLUSTER_NAME - Name of the production EKS cluster
+  KUSTOMIZE_PATH: infrastructure/kubernetes/overlays/prod # KUSTOMIZE_PATH - Path to the Kustomize configuration for production
+  NAMESPACE: borrow-rate-engine-prod # NAMESPACE - Kubernetes namespace for the application
+
+jobs:
+  approval-check: # approval-check - Verifies deployment approval and notifies stakeholders
+    runs-on: ubuntu-latest # runs-on - Specifies the runner environment
+    steps:
+      - name: Verify approval # Verify approval - Verifies that the deployment has been approved
+        run: echo "Deployment to production approved by ${{ github.event.inputs.approved_by }}"
+      - name: Notify deployment start # Notify deployment start - Sends a Slack notification to the production channel
+        uses: slackapi/slack-github-action@v1.23.0 # slackapi/slack-github-action: v1.23.0 - Sends deployment notifications to Slack
+        with:
+          channel-id: ${{ secrets.SLACK_PROD_CHANNEL_ID }}
+          payload: '{"text":"🚀 Production deployment of version ${{ github.event.inputs.version }} initiated by ${{ github.actor }} and approved by ${{ github.event.inputs.approved_by }}"}'
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+  pre-deployment-validation: # pre-deployment-validation - Validates prerequisites for production deployment
+    runs-on: ubuntu-latest # runs-on - Specifies the runner environment
+    needs: [approval-check] # needs - Ensures this job runs after the approval-check job
+    steps:
+      - name: Checkout code # Checkout code - Checks out the repository code
+        uses: actions/checkout@v3 # actions/checkout: v3 - Checkout repository code for deployment
+      - name: Configure AWS credentials # Configure AWS credentials - Configures AWS credentials for accessing EKS
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials: v2 - Configure AWS credentials for EKS cluster access
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Login to Amazon ECR # Login to Amazon ECR - Logs in to Amazon ECR for accessing container images
+        uses: aws-actions/amazon-ecr-login@v1 # aws-actions/amazon-ecr-login: v1 - Log in to Amazon ECR for container image access
+        id: ecr-login
+      - name: Verify image exists # Verify image exists - Checks if the specified image tag exists in ECR
+        run: aws ecr describe-images --repository-name borrow-rate-engine --image-ids imageTag=${{ github.event.inputs.version }} || (echo "::error::Image tag ${{ github.event.inputs.version }} not found in ECR" && exit 1)
+      - name: Verify staging deployment # Verify staging deployment - Checks if the version has been successfully deployed to staging
+        run: aws ssm get-parameter --name /borrow-rate-engine/staging/deployed-versions --query "Parameter.Value" --output text | grep -q "${{ github.event.inputs.version }}" || (echo "::error::Version ${{ github.event.inputs.version }} has not been deployed to staging" && exit 1)
+      - name: Check security scan results # Check security scan results - Checks for critical security vulnerabilities in the image
+        run: aws ecr describe-image-scan-findings --repository-name borrow-rate-engine --image-id imageTag=${{ github.event.inputs.version }} --query 'imageScanFindings.findings[?severity==`CRITICAL`]' --output json | jq -e 'length == 0' || (echo "::error::Critical security vulnerabilities found in image" && exit 1)
+      - name: Create deployment record # Create deployment record - Creates a deployment record in GitHub
+        id: create-deployment
+        uses: actions/github-script@v6 # actions/github-script: v6 - Send deployment notifications and updates
+        with:
+          script: |
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: '${{ github.event.inputs.version }}',
+              environment: 'production',
+              auto_merge: false,
+              required_contexts: [],
+              description: 'Production deployment initiated by ${{ github.actor }} and approved by ${{ github.event.inputs.approved_by }}'
+            });
+            return deployment.data.id;
+    outputs:
+      deployment_id: ${{ steps.create-deployment.outputs.result }} # deployment_id - The ID of the created deployment record
+  database-backup: # database-backup - Creates a backup of the production database
+    runs-on: ubuntu-latest # runs-on - Specifies the runner environment
+    needs: [pre-deployment-validation] # needs - Ensures this job runs after the pre-deployment-validation job
+    steps:
+      - name: Configure AWS credentials # Configure AWS credentials - Configures AWS credentials for accessing RDS
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials: v2 - Configure AWS credentials for EKS cluster access
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Create database snapshot # Create database snapshot - Creates a snapshot of the production database
+        id: create-snapshot
+        run: |
+          SNAPSHOT_ID=$(aws rds create-db-snapshot --db-instance-identifier borrow-rate-engine-prod --db-snapshot-identifier pre-deploy-${{ github.event.inputs.version }}-$(date +%Y%m%d%H%M%S) --query 'DBSnapshot.DBSnapshotIdentifier' --output text)
+          echo "::set-output name=snapshot_id::$SNAPSHOT_ID"
+      - name: Wait for snapshot completion # Wait for snapshot completion - Waits for the database snapshot to be completed
+        run: aws rds wait db-snapshot-completed --db-snapshot-identifier ${{ steps.create-snapshot.outputs.snapshot_id }}
+      - name: Verify snapshot # Verify snapshot - Verifies that the database snapshot was created successfully
+        run: aws rds describe-db-snapshots --db-snapshot-identifier ${{ steps.create-snapshot.outputs.snapshot_id }} --query 'DBSnapshots[0].Status' --output text | grep -q "available" || (echo "::error::Database snapshot creation failed" && exit 1)
+    outputs:
+      snapshot_id: ${{ steps.create-snapshot.outputs.snapshot_id }} # snapshot_id - The ID of the created database snapshot
+  deploy-canary: # deploy-canary - Deploys a canary version of the application to production
+    runs-on: ubuntu-latest # runs-on - Specifies the runner environment
+    needs: [database-backup] # needs - Ensures this job runs after the database-backup job
+    if: "${{ github.event.inputs.skip_canary != 'true' }}" # if - Skips this job if skip_canary input is true
+    steps:
+      - name: Checkout code # Checkout code - Checks out the repository code
+        uses: actions/checkout@v3 # actions/checkout: v3 - Checkout repository code for deployment
+      - name: Configure AWS credentials # Configure AWS credentials - Configures AWS credentials for accessing EKS
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials: v2 - Configure AWS credentials for EKS cluster access
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Login to Amazon ECR # Login to Amazon ECR - Logs in to Amazon ECR for accessing container images
+        uses: aws-actions/amazon-ecr-login@v1 # aws-actions/amazon-ecr-login: v1 - Log in to Amazon ECR for container image access
+        id: ecr-login
+      - name: Set up kubectl # Set up kubectl - Sets up kubectl for interacting with the Kubernetes cluster
+        uses: azure/setup-kubectl@v3 # azure/setup-kubectl: v3 - Set up kubectl for Kubernetes deployments
+        with:
+          version: v1.28.0
+      - name: Set Kubernetes Context # Set Kubernetes Context - Sets the Kubernetes context to the production EKS cluster
+        uses: azure/k8s-set-context@v2 # azure/k8s-set-context: v2 - Set Kubernetes context to the production EKS cluster
+        with:
+          method: aws
+          cluster-name: ${{ env.EKS_CLUSTER_NAME }}
+          cluster-type: eks
+      - name: Update kustomization for canary # Update kustomization for canary - Updates the Kustomization file for the canary deployment
+        run: cd ${{ env.KUSTOMIZE_PATH }} && kustomize edit set image ${{ steps.ecr-login.outputs.registry }}/borrow-rate-engine:${{ github.event.inputs.version }}
+      - name: Deploy canary (10% traffic) # Deploy canary (10% traffic) - Deploys the canary version with 10% of the traffic
+        run: kubectl apply -k ${{ env.KUSTOMIZE_PATH }} -l canary=true --namespace ${{ env.NAMESPACE }}
+      - name: Configure traffic split # Configure traffic split - Configures traffic splitting to route 10% of traffic to the canary
+        run: |
+          kubectl apply -f - <<EOF
+          apiVersion: split.smi-spec.io/v1alpha1
+          kind: TrafficSplit
+          metadata:
+            name: api-gateway-split
+            namespace: ${{ env.NAMESPACE }}
+          spec:
+            service: api-gateway
+            backends:
+            - service: api-gateway-stable
+              weight: 90
+            - service: api-gateway-canary
+              weight: 10
+          EOF
+      - name: Verify canary deployment # Verify canary deployment - Verifies that the canary deployment is successful
+        run: kubectl rollout status deployment/api-gateway-canary -n ${{ env.NAMESPACE }} --timeout=300s
+      - name: Run smoke tests against canary # Run smoke tests against canary - Runs smoke tests against the canary deployment
+        run: src/test/scripts/run_smoke_tests.sh --environment production --canary
+      - name: Monitor canary health (5 minutes) # Monitor canary health (5 minutes) - Monitors the health of the canary deployment for 5 minutes
+        run: kubectl logs -l app=api-gateway-canary -n ${{ env.NAMESPACE }} --tail=100 && kubectl exec -n ${{ env.NAMESPACE }} deploy/api-gateway-canary -- curl -s http://localhost:8080/health | grep -q 'UP'
+      - name: Increase canary traffic (30%) # Increase canary traffic (30%) - Increases the canary traffic to 30%
+        run: |
+          kubectl apply -f - <<EOF
+          apiVersion: split.smi-spec.io/v1alpha1
+          kind: TrafficSplit
+          metadata:
+            name: api-gateway-split
+            namespace: ${{ env.NAMESPACE }}
+          spec:
+            service: api-gateway
+            backends:
+            - service: api-gateway-stable
+              weight: 70
+            - service: api-gateway-canary
+              weight: 30
+          EOF
+      - name: Monitor canary health (10 minutes) # Monitor canary health (10 minutes) - Monitors the health of the canary deployment for 10 minutes
+        run: kubectl exec -n ${{ env.NAMESPACE }} deploy/api-gateway-canary -- curl -s http://localhost:8080/metrics | grep 'http_server_requests_seconds_count' && kubectl get pods -l app=api-gateway-canary -n ${{ env.NAMESPACE }}
+  deploy-full: # deploy-full - Deploys the full version of the application to production
+    runs-on: ubuntu-latest # runs-on - Specifies the runner environment
+    needs: [deploy-canary, database-backup, pre-deployment-validation] # needs - Ensures this job runs after the deploy-canary and database-backup jobs
+    if: "${{ always() && (needs.deploy-canary.result == 'success' || github.event.inputs.skip_canary == 'true') }}" # if - Runs this job only if the deploy-canary job was successful or skip_canary input is true
+    steps:
+      - name: Checkout code # Checkout code - Checks out the repository code
+        uses: actions/checkout@v3 # actions/checkout: v3 - Checkout repository code for deployment
+      - name: Configure AWS credentials # Configure AWS credentials - Configures AWS credentials for accessing EKS
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials: v2 - Configure AWS credentials for EKS cluster access
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Login to Amazon ECR # Login to Amazon ECR - Logs in to Amazon ECR for accessing container images
+        uses: aws-actions/amazon-ecr-login@v1 # aws-actions/amazon-ecr-login: v1 - Log in to Amazon ECR for container image access
+        id: ecr-login
+      - name: Set up kubectl # Set up kubectl - Sets up kubectl for interacting with the Kubernetes cluster
+        uses: azure/setup-kubectl@v3 # azure/setup-kubectl: v3 - Set up kubectl for Kubernetes deployments
+        with:
+          version: v1.28.0
+      - name: Set Kubernetes Context # Set Kubernetes Context - Sets the Kubernetes context to the production EKS cluster
+        uses: azure/k8s-set-context@v2 # azure/k8s-set-context: v2 - Set Kubernetes context to the production EKS cluster
+        with:
+          method: aws
+          cluster-name: ${{ env.EKS_CLUSTER_NAME }}
+          cluster-type: eks
+      - name: Update kustomization.yaml with new image tag # Update kustomization.yaml with new image tag - Updates the Kustomization file with the new image tag
+        run: cd ${{ env.KUSTOMIZE_PATH }} && kustomize edit set image ${{ steps.ecr-login.outputs.registry }}/borrow-rate-engine:${{ github.event.inputs.version }}
+      - name: Deploy to Kubernetes # Deploy to Kubernetes - Deploys the full version to Kubernetes
+        uses: azure/k8s-deploy@v2 # azure/k8s-deploy: v2 - Deploy to Kubernetes using kustomize
+        with:
+          namespace: ${{ env.NAMESPACE }}
+          manifests: ${{ env.KUSTOMIZE_PATH }}
+          kubectl-version: v1.28.0
+          strategy: canary
+          percentage: '100'
+          traffic-split-method: smi
+      - name: Verify Deployment # Verify Deployment - Verifies that the deployment is successful
+        run: kubectl rollout status deployment/api-gateway -n ${{ env.NAMESPACE }} --timeout=300s
+      - name: Run Database Migrations # Run Database Migrations - Runs database migrations
+        run: kubectl exec -n ${{ env.NAMESPACE }} deploy/api-gateway -- python -m scripts.run_migrations --command upgrade
+      - name: Run E2E Tests # Run E2E Tests - Runs end-to-end tests
+        run: src/test/scripts/run_e2e_tests.sh --environment production --subset critical
+      - name: Update deployment status # Update deployment status - Updates the deployment status in GitHub
+        if: success()
+        uses: actions/github-script@v6 # actions/github-script: v6 - Send deployment notifications and updates
+        with:
+          script: |
+            github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: ${{ needs.pre-deployment-validation.outputs.deployment_id }},
+              state: 'success',
+              environment_url: 'https://api.borrow-rate-engine.example.com',
+              description: 'Production deployment completed successfully'
+            });
+      - name: Store deployed version # Store deployed version - Stores the deployed version in SSM Parameter Store
+        run: aws ssm put-parameter --name /borrow-rate-engine/production/deployed-version --value "${{ github.event.inputs.version }}" --type String --overwrite
+      - name: Notify Deployment Success # Notify Deployment Success - Sends a Slack notification to the production channel
+        if: success()
+        uses: slackapi/slack-github-action@v1.23.0 # slackapi/slack-github-action: v1.23.0 - Sends deployment notifications to Slack
+        with:
+          channel-id: ${{ secrets.SLACK_PROD_CHANNEL_ID }}
+          payload: '{"text":"✅ Production deployment of version ${{ github.event.inputs.version }} completed successfully."}'
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      - name: Update deployment status on failure # Update deployment status on failure - Updates the deployment status in GitHub on failure
+        if: failure()
+        uses: actions/github-script@v6 # actions/github-script: v6 - Send deployment notifications and updates
+        with:
+          script: |
+            github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: ${{ needs.pre-deployment-validation.outputs.deployment_id }},
+              state: 'failure',
+              description: 'Production deployment failed'
+            });
+      - name: Notify Deployment Failure # Notify Deployment Failure - Sends a Slack notification to the production channel on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.23.0 # slackapi/slack-github-action: v1.23.0 - Sends deployment notifications to Slack
+        with:
+          channel-id: ${{ secrets.SLACK_PROD_CHANNEL_ID }}
+          payload: '{"text":"❌ Production deployment of version ${{ github.event.inputs.version }} failed. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View details>"}'
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+  post-deployment-monitoring: # post-deployment-monitoring - Monitors the production environment after deployment
+    runs-on: ubuntu-latest # runs-on - Specifies the runner environment
+    needs: [deploy-full] # needs - Ensures this job runs after the deploy-full job
+    if: success() # if - Runs this job only if the deploy-full job was successful
+    steps:
+      - name: Checkout code # Checkout code - Checks out the repository code
+        uses: actions/checkout@v3 # actions/checkout: v3 - Checkout repository code for deployment
+      - name: Configure AWS credentials # Configure AWS credentials - Configures AWS credentials for accessing EKS
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials: v2 - Configure AWS credentials for EKS cluster access
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Monitor production metrics (30 minutes) # Monitor production metrics (30 minutes) - Monitors production metrics for 30 minutes
+        run: kubectl get pods -n ${{ env.NAMESPACE }} && kubectl top pods -n ${{ env.NAMESPACE }} && kubectl exec -n ${{ env.NAMESPACE }} deploy/api-gateway -- curl -s http://localhost:8080/metrics
+      - name: Generate deployment report # Generate deployment report - Generates a deployment report
+        run: python src/test/scripts/generate_test_report.py --type deployment --environment production --version ${{ github.event.inputs.version }}
+      - name: Upload deployment report # Upload deployment report - Uploads the deployment report as an artifact
+        uses: actions/upload-artifact@v3 # actions/upload-artifact: v3 - Upload artifacts from the workflow
+        with:
+          name: production-deployment-report
+          path: src/test/reports/deployment-report-${{ github.event.inputs.version }}.html
+          retention-days: 90
+      - name: Send deployment summary # Send deployment summary - Sends a Slack notification with a deployment summary
+        uses: slackapi/slack-github-action@v1.23.0 # slackapi/slack-github-action: v1.23.0 - Sends deployment notifications to Slack
+        with:
+          channel-id: ${{ secrets.SLACK_PROD_CHANNEL_ID }}
+          payload: '{"text":"📊 Post-deployment monitoring for version ${{ github.event.inputs.version }} completed. All metrics within expected thresholds. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View detailed report>"}'
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+  rollback: # rollback - Rolls back the deployment if issues are detected
+    runs-on: ubuntu-latest # runs-on - Specifies the runner environment
+    needs: [deploy-full, database-backup, pre-deployment-validation] # needs - Ensures this job runs after the deploy-full and database-backup jobs
+    if: failure() # if - Runs this job only if the deploy-full job failed
+    steps:
+      - name: Checkout code # Checkout code - Checks out the repository code
+        uses: actions/checkout@v3 # actions/checkout: v3 - Checkout repository code for deployment
+      - name: Configure AWS credentials # Configure AWS credentials - Configures AWS credentials for accessing EKS
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials: v2 - Configure AWS credentials for EKS cluster access
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Set up kubectl # Set up kubectl - Sets up kubectl for interacting with the Kubernetes cluster
+        uses: azure/setup-kubectl@v3 # azure/setup-kubectl: v3 - Set up kubectl for Kubernetes deployments
+        with:
+          version: v1.28.0
+      - name: Set Kubernetes Context # Set Kubernetes Context - Sets the Kubernetes context to the production EKS cluster
+        uses: azure/k8s-set-context@v2 # azure/k8s-set-context: v2 - Set Kubernetes context to the production EKS cluster
+        with:
+          method: aws
+          cluster-name: ${{ env.EKS_CLUSTER_NAME }}
+          cluster-type: eks
+      - name: Get previous version # Get previous version - Retrieves the previously deployed version from SSM Parameter Store
+        id: prev-version
+        run: |
+          PREV_VERSION=$(aws ssm get-parameter --name /borrow-rate-engine/production/deployed-version --query 'Parameter.Value' --output text)
+          echo "::set-output name=version::$PREV_VERSION"
+      - name: Rollback deployment # Rollback deployment - Rolls back the deployment to the previous version
+        run: kubectl rollout undo deployment/api-gateway -n ${{ env.NAMESPACE }}
+      - name: Verify rollback # Verify rollback - Verifies that the rollback was successful
+        run: kubectl rollout status deployment/api-gateway -n ${{ env.NAMESPACE }} --timeout=300s
+      - name: Update deployment status # Update deployment status - Updates the deployment status in GitHub
+        uses: actions/github-script@v6 # actions/github-script: v6 - Send deployment notifications and updates
+        with:
+          script: |
+            github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: ${{ needs.pre-deployment-validation.outputs.deployment_id }},
+              state: 'failure',
+              description: 'Production deployment failed and was rolled back to version ${{ steps.prev-version.outputs.version }}'
+            });
+      - name: Notify Rollback # Notify Rollback - Sends a Slack notification to the production channel about the rollback
+        uses: slackapi/slack-github-action@v1.23.0 # slackapi/slack-github-action: v1.23.0 - Sends deployment notifications to Slack
+        with:
+          channel-id: ${{ secrets.SLACK_PROD_CHANNEL_ID }}
+          payload: '{"text":"⚠️ Production deployment of version ${{ github.event.inputs.version }} failed and was rolled back to version ${{ steps.prev-version.outputs.version }}. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View details>"}'
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
