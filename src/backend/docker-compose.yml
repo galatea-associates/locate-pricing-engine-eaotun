@@ -1,0 +1,203 @@
+version: "3.8"
+# docker-compose version: 1.29.2+
+# Description: Docker Compose configuration file for orchestrating the Borrow Rate & Locate Fee Pricing Engine services. This file defines all the necessary services for local development and testing, including the API service, database, cache, and mock external APIs.
+
+services:
+  api:
+    # Description: Main API service for the Borrow Rate & Locate Fee Pricing Engine.
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Requirement: Ensures consistent environments across development and production for financial calculations using Docker 24.0+
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      # Development Feature: Hot Reload - Code changes are automatically detected and the application reloads
+      # Implementation: Volume mounting of local code directory into container
+    environment:
+      APP_NAME: "Borrow Rate & Locate Fee Pricing Engine"
+      API_VERSION: "v1"
+      ENVIRONMENT: "development"
+      DATABASE_URL: "postgresql://postgres:postgres@db:5432/borrow_rate_engine"
+      REDIS_URL: "redis://redis:6379/0"
+      SECLEND_API_BASE_URL: "http://seclend-api:8001/api"
+      SECLEND_API_KEY: "dev_key"
+      SECLEND_API_TIMEOUT: "5"
+      MARKET_VOLATILITY_API_BASE_URL: "http://market-api:8002/api"
+      MARKET_VOLATILITY_API_KEY: "dev_key"
+      MARKET_VOLATILITY_API_TIMEOUT: "5"
+      EVENT_CALENDAR_API_BASE_URL: "http://event-api:8003/api"
+      EVENT_CALENDAR_API_KEY: "dev_key"
+      EVENT_CALENDAR_API_TIMEOUT: "5"
+      DEFAULT_CACHE_TTL: "300"
+      DEFAULT_RATE_LIMIT: "60"
+      LOG_LEVEL: "INFO"
+      PYTHONPATH: "/app"
+    depends_on:
+      db:
+        condition: service_healthy
+        # Development Feature: Health Checks - Services wait for dependencies to be healthy before starting
+        # Implementation: Health check configuration for each service
+      redis:
+        condition: service_healthy
+        # Development Feature: Health Checks - Services wait for dependencies to be healthy before starting
+        # Implementation: Health check configuration for each service
+      seclend-api:
+        condition: service_healthy
+        # Development Feature: Health Checks - Services wait for dependencies to be healthy before starting
+        # Implementation: Health check configuration for each service
+      market-api:
+        condition: service_healthy
+        # Development Feature: Health Checks - Services wait for dependencies to be healthy before starting
+        # Implementation: Health check configuration for each service
+      event-api:
+        condition: service_healthy
+        # Development Feature: Health Checks - Services wait for dependencies to be healthy before starting
+        # Implementation: Health check configuration for each service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+  db:
+    # Description: PostgreSQL database service for storing application data.
+    image: "postgres:15-alpine"
+    # Requirement: Configures PostgreSQL 15.0+ for financial data integrity and Redis 7.0+ for caching with appropriate settings
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Development Feature: Persistent Data - Database and cache data persists between container restarts
+      # Implementation: Named volumes for PostgreSQL and Redis data
+    environment:
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "postgres"
+      POSTGRES_DB: "borrow_rate_engine"
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+  redis:
+    # Description: Redis cache service for improving application performance.
+    image: "redis:7-alpine"
+    # Requirement: Configures PostgreSQL 15.0+ for financial data integrity and Redis 7.0+ for caching with appropriate settings
+    volumes:
+      - redis_data:/data
+      # Development Feature: Persistent Data - Database and cache data persists between container restarts
+      # Implementation: Named volumes for PostgreSQL and Redis data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+  seclend-api:
+    # Description: Mock SecLend API service for local development and testing.
+    image: "python:3.11-slim"
+    # Requirement: Includes mock servers for external APIs to facilitate testing without external dependencies
+    volumes:
+      - ../test/mock_servers:/app
+      # Development Feature: Mock External APIs - Simulated external APIs for development without external dependencies
+      # Implementation: Separate containers for each external API with configurable behavior
+    working_dir: /app
+    command: sh -c "pip install -r requirements.txt && uvicorn seclend_api.app:app --host 0.0.0.0 --port 8001"
+    ports:
+      - "8001:8001"
+    environment:
+      MOCK_API_PORT: "8001"
+      LOG_LEVEL: "INFO"
+      FAILURE_RATE: "0"
+      DELAY_RATE: "0"
+      PYTHONPATH: "/app"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+  market-api:
+    # Description: Mock Market Volatility API service for local development and testing.
+    image: "python:3.11-slim"
+    # Requirement: Includes mock servers for external APIs to facilitate testing without external dependencies
+    volumes:
+      - ../test/mock_servers:/app
+      # Development Feature: Mock External APIs - Simulated external APIs for development without external dependencies
+      # Implementation: Separate containers for each external API with configurable behavior
+    working_dir: /app
+    command: sh -c "pip install -r requirements.txt && uvicorn market_api.app:app --host 0.0.0.0 --port 8002"
+    ports:
+      - "8002:8002"
+    environment:
+      MOCK_API_PORT: "8002"
+      LOG_LEVEL: "INFO"
+      FAILURE_RATE: "0"
+      DELAY_RATE: "0"
+      PYTHONPATH: "/app"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+  event-api:
+    # Description: Mock Event Calendar API service for local development and testing.
+    image: "python:3.11-slim"
+    # Requirement: Includes mock servers for external APIs to facilitate testing without external dependencies
+    volumes:
+      - ../test/mock_servers:/app
+      # Development Feature: Mock External APIs - Simulated external APIs for development without external dependencies
+      # Implementation: Separate containers for each external API with configurable behavior
+    working_dir: /app
+    command: sh -c "pip install -r requirements.txt && uvicorn event_api.app:app --host 0.0.0.0 --port 8003"
+    ports:
+      - "8003:8003"
+    environment:
+      MOCK_API_PORT: "8003"
+      LOG_LEVEL: "INFO"
+      FAILURE_RATE: "0"
+      DELAY_RATE: "0"
+      PYTHONPATH: "/app"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    # Description: Persistent storage for PostgreSQL database
+    # Development Feature: Persistent Data - Database and cache data persists between container restarts
+    # Implementation: Named volumes for PostgreSQL and Redis data
+  redis_data:
+    # Description: Persistent storage for Redis cache
+    # Development Feature: Persistent Data - Database and cache data persists between container restarts
+    # Implementation: Named volumes for PostgreSQL and Redis data
+
+networks:
+  default:
+    driver: bridge
+    # Description: Default network for all services
+
+# Usage Instructions:
+# =============================================================================
+# To start all services: docker-compose up
+# To start a specific service: docker-compose up api
+# To stop all services: docker-compose down
+# To view logs: docker-compose logs -f
+# To rebuild services: docker-compose up --build
+# To run migrations: docker-compose exec api python -m scripts.run_migrations
+# To seed data: docker-compose exec api python -m scripts.seed_data
