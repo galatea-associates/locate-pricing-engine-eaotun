@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: borrow-rate-engine
+  labels:
+    app: borrow-rate-engine
+    component: api-gateway
+    environment: ${ENV}
+    managed-by: kustomize
+  annotations:
+    description: "API Gateway Service for Borrow Rate & Locate Fee Pricing Engine"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app: borrow-rate-engine
+    component: api-gateway
+  sessionAffinity: None
