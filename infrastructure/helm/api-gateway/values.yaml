@@ -1,0 +1,285 @@
+# Default values for api-gateway Helm chart
+# This is a YAML-formatted file.
+
+# Number of replicas for high availability
+replicaCount: 3
+
+# Container image configuration
+image:
+  repository: {{ .Values.global.registry }}/borrow-rate-engine-api
+  pullPolicy: IfNotPresent
+  # Fallback to Chart.AppVersion if imageTag is not set
+  tag: {{ .Values.global.imageTag | default .Chart.AppVersion }}
+
+# Image pull secrets if needed
+imagePullSecrets: []
+
+# Override chart name if needed
+nameOverride: ""
+# Override full name if needed
+fullnameOverride: ""
+
+# Service account configuration
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use
+  name: ""
+
+# Pod annotations for metrics scraping
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8000"
+  prometheus.io/path: "/metrics"
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 1000
+
+# Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  capabilities:
+    drop:
+      - ALL
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+  annotations: {}
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: api.{{ .Values.global.domain }}
+      paths:
+        - path: /(.*) 
+          pathType: Prefix
+  tls:
+    - secretName: api-gateway-tls
+      hosts:
+        - api.{{ .Values.global.domain }}
+
+# Resource allocation as per requirements
+resources:
+  limits:
+    cpu: 2000m    # 2 cores
+    memory: 4Gi   # 4 GB
+  requests:
+    cpu: 500m     # 0.5 cores for initial request
+    memory: 1Gi   # 1 GB for initial request
+
+# Horizontal Pod Autoscaler configuration
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+
+# Node selector to ensure Linux nodes
+nodeSelector:
+  kubernetes.io/os: linux
+
+# Additional tolerations if needed
+tolerations: []
+
+# Pod anti-affinity for high availability across nodes and AZs
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - api-gateway
+          topologyKey: kubernetes.io/hostname
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - api-gateway
+          topologyKey: topology.kubernetes.io/zone
+
+# Liveness probe for health checking
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Readiness probe to check if pod is ready to serve traffic
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 2
+
+# Startup probe to give application time to bootstrap
+startupProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 12
+
+# Environment variables for api-gateway configuration
+env:
+  APP_NAME: borrow-rate-engine
+  API_VERSION: v1
+  LOG_LEVEL: INFO
+  ENABLE_METRICS: "true"
+  ENABLE_TRACING: "true"
+  
+  # Service URLs for internal communication
+  CALCULATION_SERVICE_URL: http://calculation-service:8000
+  DATA_SERVICE_URL: http://data-service:8000
+  CACHE_SERVICE_URL: http://cache-service:8000
+  AUDIT_SERVICE_URL: http://audit-service:8000
+  
+  # Service timeouts and rate limits
+  REQUEST_TIMEOUT: "5"
+  DEFAULT_RATE_LIMIT: "60"  # Standard client tier: 60 requests/minute
+  PREMIUM_RATE_LIMIT: "300" # Premium client tier: 300 requests/minute
+  INTERNAL_RATE_LIMIT: "1000" # Internal tier: 1000 requests/minute
+  RATE_LIMIT_WINDOW: "60"
+  RATE_LIMIT_BURST: "100"
+  
+  # CORS configuration
+  CORS_ORIGINS: "*"
+  CORS_METHODS: "GET,POST,OPTIONS"
+  CORS_HEADERS: "Authorization,Content-Type,X-API-Key"
+  
+  # API documentation
+  ENABLE_SWAGGER: "true"
+  SWAGGER_URL: "/docs"
+  
+  # Health and metrics
+  HEALTH_CHECK_PATH: "/health"
+  METRICS_PATH: "/metrics"
+  
+  # Authentication configuration
+  ENABLE_AUTH: "true"
+  AUTH_HEADER_NAME: "X-API-Key"
+  JWT_EXPIRATION: "900"  # 15 minutes
+  JWT_ALGORITHM: "HS256"
+
+# ConfigMap for non-sensitive configuration
+configmap:
+  enabled: true
+  name: "api-gateway-config"
+
+# Secrets for sensitive configuration
+secrets:
+  enabled: true
+  databaseCredentials:
+    name: "database-credentials"
+    keys: ["url", "username", "password", "host", "port", "database"]
+  redisCredentials:
+    name: "redis-credentials"
+    keys: ["url", "host", "port", "password", "database"]
+  externalApiCredentials:
+    name: "external-api-credentials"
+    keys: ["seclend_api_key", "market_api_key", "event_api_key"]
+  jwtSecret:
+    name: "jwt-secret"
+    keys: ["secret_key"]
+
+# Redis configuration for caching and rate limiting
+redis:
+  enabled: true
+  architecture: replication
+  auth:
+    enabled: true
+    sentinel: true
+    password: {{ .Values.global.redis.password }}
+  master:
+    persistence:
+      enabled: true
+      size: 8Gi
+  replica:
+    replicaCount: 2
+    persistence:
+      enabled: true
+      size: 8Gi
+  sentinel:
+    enabled: true
+
+# Global values that can be referenced
+global:
+  registry: {{ .Values.global.registry }}
+  imageTag: {{ .Values.global.imageTag }}
+  domain: {{ .Values.global.domain }}
+  environment: {{ .Values.global.environment }}
+  redis:
+    password: {{ .Values.global.redis.password }}
+
+# Pod Disruption Budget for high availability
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# Deployment strategy for rolling updates
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# Termination grace period to allow for graceful shutdown
+terminationGracePeriodSeconds: 60
