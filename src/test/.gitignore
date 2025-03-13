@@ -1,0 +1,69 @@
+.env
+.env.test
+.env.local
+.env.development
+.env.staging
+.env.production
+
+# Test artifacts
+reports/*
+!reports/.gitkeep
+junit.xml
+coverage.xml
+.coverage
+htmlcov/
+test-results/
+test-output/
+allure-results/
+allure-report/
+
+# Cache directories
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*$py.class
+.hypothesis/
+
+# Python artifacts
+*.egg-info/
+*.egg
+dist/
+build/
+*.so
+
+# Data files
+data_generators/output/
+test_data.json
+test_data_*.json
+generated_*.json
+*.csv
+*.xlsx
+
+# Mock server artifacts
+mock_servers/logs/
+mock_servers/*.log
+
+# Load testing artifacts
+load_testing/results/
+load_testing/*.html
+load_testing/*.csv
+load_testing/logs/
+locust_stats.csv
+locust_exceptions.csv
+locust_stats_history.csv
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.log
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS specific files
+.DS_Store
+Thumbs.db
