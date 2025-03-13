@@ -1,0 +1,235 @@
+# Default values for cache-service Helm chart
+# This is a YAML-formatted file.
+# Implements a Redis-based caching layer for the Borrow Rate & Locate Fee Pricing Engine
+# with TTL-based expiration for different types of data.
+# bitnami/redis version: 17.0.0+
+
+# Number of replicas for the cache service
+replicaCount: 3
+
+# Container image configuration
+image:
+  repository: cache-service
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion
+  tag: "latest"
+
+# Override the name of the chart
+nameOverride: ""
+# Override the full name of the chart
+fullnameOverride: ""
+
+# Service account configuration
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# Additional pod annotations
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9090"
+  prometheus.io/path: "/metrics"
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 1000
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 6379
+  metricsPort: 9090
+
+# Resource requests and limits for the cache service
+# Aligned with technical specifications: 4 cores, 16GB RAM
+resources:
+  requests:
+    cpu: 2000m    # 2 cores minimum
+    memory: 8Gi   # 8GB minimum
+  limits:
+    cpu: 4000m    # 4 cores maximum
+    memory: 16Gi  # 16GB maximum
+
+# Health probes
+livenessProbe:
+  exec:
+    command:
+      - redis-cli
+      - ping
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+
+readinessProbe:
+  exec:
+    command:
+      - redis-cli
+      - ping
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+
+startupProbe:
+  exec:
+    command:
+      - redis-cli
+      - ping
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 5
+  failureThreshold: 30
+  successThreshold: 1
+
+# Node selector
+nodeSelector: {}
+
+# Pod affinity/anti-affinity rules
+# Ensures cache pods are distributed across nodes for high availability
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - cache-service
+          topologyKey: kubernetes.io/hostname
+
+# Tolerations
+tolerations: []
+
+# Persistence configuration for Redis data
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 50Gi  # Aligned with technical specs: 50GB SSD
+  annotations: {}
+
+# Environment variables for the cache service
+# Includes TTL configurations for different cache levels
+env:
+  # L1 Cache: In-memory application cache (5-second TTL)
+  REDIS_TTL_L1: "5"
+  # L2 Cache: Redis distributed cache (5-minute TTL)
+  REDIS_TTL_L2: "300"
+  # L3 Cache: Database cache of external API responses (1-hour TTL)
+  REDIS_TTL_L3: "3600"
+  # Default cache key prefix
+  REDIS_KEY_PREFIX: "borfee:"
+
+# ConfigMap for additional Redis configuration
+configmap:
+  enabled: true
+  data:
+    redis.conf: |
+      # Memory management
+      maxmemory 12gb  # 75% of available memory
+      maxmemory-policy allkeys-lru  # Least recently used eviction policy
+      
+      # Persistence configuration
+      appendonly yes
+      appendfsync everysec
+      
+      # Snapshotting
+      save 900 1     # Save after 15 minutes if at least 1 change
+      save 300 10    # Save after 5 minutes if at least 10 changes
+      save 60 10000  # Save after 1 minute if at least 10000 changes
+      
+      # Performance tuning
+      tcp-keepalive 60
+      timeout 0
+      tcp-backlog 511
+
+# Secrets for sensitive information
+secrets:
+  enabled: true
+  name: cache-service-secrets
+  # Credentials will be provided by external secret management system
+  data: {}
+
+# Redis dependency configuration
+# Based on bitnami/redis chart version 17.0.0+
+redis:
+  enabled: true
+  # Multi-AZ deployment with one master and two replicas
+  architecture: replication
+  
+  # Authentication configuration
+  auth:
+    enabled: true
+    existingSecret: cache-service-secrets
+    existingSecretPasswordKey: redis-password
+  
+  # Master node configuration
+  master:
+    persistence:
+      enabled: true
+      size: 50Gi  # Aligned with technical specs: 50GB SSD
+    resources:
+      requests:
+        cpu: 2000m
+        memory: 8Gi
+      limits:
+        cpu: 4000m
+        memory: 16Gi
+  
+  # Replica nodes configuration
+  replica:
+    replicaCount: 2  # Total of 3 nodes (1 master + 2 replicas)
+    persistence:
+      enabled: true
+      size: 50Gi  # Aligned with technical specs: 50GB SSD
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 4Gi
+      limits:
+        cpu: 2000m
+        memory: 8Gi
+  
+  # Prometheus metrics for monitoring
+  metrics:
+    enabled: true
+  
+  # High availability with Redis Sentinel
+  sentinel:
+    enabled: true
+    quorum: 2
+  
+  # Redis Cluster - not used in this implementation
+  cluster:
+    enabled: false
+  
+  # TLS encryption for data in transit
+  tls:
+    enabled: true
+    certificatesSecret: redis-tls-certificates
+    certFilename: tls.crt
+    certKeyFilename: tls.key
+    caFilename: ca.crt
+  
+  # Pod anti-affinity to ensure high availability
+  podAntiAffinityPreset: hard
