@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-audit-service
+  labels:
+    app.kubernetes.io/name: audit-service
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    {{- with .Values.podAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: audit-service
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: audit-service
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: audit
+        part-of: borrow-rate-engine
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ .Release.Name }}-audit-service
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-audit-service-postgresql
+                  key: postgres-url
+            - name: RABBITMQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-audit-service-rabbitmq
+                  key: rabbitmq-url
+            - name: AWS_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-audit-service-secrets
+                  key: aws-access-key
+            - name: AWS_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-audit-service-secrets
+                  key: aws-secret-key
+            - name: LOG_LEVEL
+              value: "{{ .Values.env.LOG_LEVEL }}"
+            - name: ENVIRONMENT
+              value: "{{ .Values.env.ENVIRONMENT }}"
+            - name: RETENTION_PERIOD_DAYS
+              value: "{{ .Values.env.RETENTION_PERIOD_DAYS }}"
+            - name: AUDIT_BATCH_SIZE
+              value: "{{ .Values.env.AUDIT_BATCH_SIZE }}"
+            - name: ENABLE_ASYNC_PROCESSING
+              value: "{{ .Values.env.ENABLE_ASYNC_PROCESSING }}"
+            - name: ENABLE_COMPRESSION
+              value: "{{ .Values.env.ENABLE_COMPRESSION }}"
+            - name: ENABLE_ENCRYPTION
+              value: "{{ .Values.env.ENABLE_ENCRYPTION }}"
+            - name: S3_BUCKET_NAME
+              value: "{{ .Values.env.S3_BUCKET_NAME | default "borrow-rate-engine-audit-logs" }}"
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/config
+            - name: audit-data
+              mountPath: /app/data
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          {{- if .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ .Release.Name }}-audit-service-config
+        - name: audit-data
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-audit-service-data
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 60
