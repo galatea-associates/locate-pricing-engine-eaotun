@@ -1,0 +1,250 @@
+---
+# API Gateway Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-gateway-hpa
+  namespace: borrow-rate-engine
+  labels:
+    app: borrow-rate-engine
+    component: api-gateway
+    environment: ${ENV}
+    managed-by: kustomize
+  annotations:
+    description: "HorizontalPodAutoscaler for API Gateway"
+    last-updated: "${TIMESTAMP}"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-gateway
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Pods
+    pods:
+      metric:
+        name: http_requests_per_second
+      target:
+        type: AverageValue
+        averageValue: 800
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+      - type: Percent
+        value: 20
+        periodSeconds: 60
+      selectPolicy: Min
+---
+# Calculation Service Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: calculation-service-hpa
+  namespace: borrow-rate-engine
+  labels:
+    app: borrow-rate-engine
+    component: calculation-service
+    environment: ${ENV}
+    managed-by: kustomize
+  annotations:
+    description: "HorizontalPodAutoscaler for Calculation Service"
+    last-updated: "${TIMESTAMP}"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: calculation-service
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Pods
+    pods:
+      metric:
+        name: requests_per_second
+      target:
+        type: AverageValue
+        averageValue: 700
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Pods
+        value: 3
+        periodSeconds: 60
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+      - type: Percent
+        value: 20
+        periodSeconds: 60
+      selectPolicy: Min
+---
+# Data Service Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: data-service-hpa
+  namespace: borrow-rate-engine
+  labels:
+    app: borrow-rate-engine
+    component: data-service
+    environment: ${ENV}
+    managed-by: kustomize
+  annotations:
+    description: "HorizontalPodAutoscaler for Data Service"
+    last-updated: "${TIMESTAMP}"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: data-service
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: ContainerResource
+    containerResource:
+      name: memory
+      container: data-service
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Object
+    object:
+      metric:
+        name: database_connections_percentage
+      describedObject:
+        kind: Service
+        name: data-service
+      target:
+        type: Value
+        value: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+      - type: Percent
+        value: 20
+        periodSeconds: 60
+      selectPolicy: Min
+---
+# Cache Service Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: cache-service-hpa
+  namespace: borrow-rate-engine
+  labels:
+    app: borrow-rate-engine
+    component: cache-service
+    environment: ${ENV}
+    managed-by: kustomize
+  annotations:
+    description: "HorizontalPodAutoscaler for Cache Service"
+    last-updated: "${TIMESTAMP}"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: cache-service
+  minReplicas: 3
+  maxReplicas: 8
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Pods
+    pods:
+      metric:
+        name: cache_operations_per_second
+      target:
+        type: AverageValue
+        averageValue: 5000
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+      - type: Percent
+        value: 20
+        periodSeconds: 60
+      selectPolicy: Min
