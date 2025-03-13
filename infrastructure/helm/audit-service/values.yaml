@@ -1,0 +1,209 @@
+# Default values for audit-service helm chart
+# This file configures the Audit Service that records all fee calculations
+# for compliance, auditing, and regulatory requirements (SEC Rule 17a-4)
+
+# Number of replicas for high availability
+replicaCount: 2
+
+# Container image configuration
+image:
+  repository: borrow-rate-engine-audit
+  pullPolicy: IfNotPresent
+  tag: latest  # This should be overridden in production with specific version
+
+# Chart name override options
+nameOverride: ""
+fullnameOverride: "audit-service"
+
+# Service account configuration for AWS IAM integration
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/audit-service-role"
+  name: "audit-service"
+
+# Pod annotations for metrics and compliance
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8000"
+  prometheus.io/path: "/metrics"
+  compliance: "SEC-Rule-17a-4"
+
+# Security context for pod
+podSecurityContext:
+  fsGroup: 1000
+
+# Security context for containers
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  allowPrivilegeEscalation: false
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 8000
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+
+# Resource allocation as per technical specifications
+resources:
+  limits:
+    cpu: "2000m"  # 2 cores
+    memory: "4Gi" # 4 GB
+  requests:
+    cpu: "500m"   # 0.5 cores baseline
+    memory: "1Gi" # 1 GB baseline
+
+# Health check probes
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 2
+
+startupProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 12
+
+# Node selection
+nodeSelector:
+  kubernetes.io/os: linux
+
+# Pod tolerations
+tolerations: []
+
+# Pod affinity configuration for high availability
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app
+            operator: In
+            values:
+            - audit-service
+        topologyKey: kubernetes.io/hostname
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app
+            operator: In
+            values:
+            - audit-service
+        topologyKey: topology.kubernetes.io/zone
+
+# Persistent volume configuration for audit data
+persistence:
+  enabled: true
+  storageClass: "gp3"
+  accessMode: ReadWriteOnce
+  size: 50Gi
+  annotations:
+    backup.velero.io/backup-volumes: audit-data
+
+# Environment variables for service configuration
+# 7-year retention (2555 days) for SEC Rule 17a-4 compliance
+env:
+  LOG_LEVEL: INFO
+  ENVIRONMENT: production
+  RETENTION_PERIOD_DAYS: "2555"  # 7 years for SEC Rule 17a-4
+  AUDIT_BATCH_SIZE: "100"
+  ENABLE_ASYNC_PROCESSING: "true"
+  ENABLE_COMPRESSION: "true"
+  ENABLE_ENCRYPTION: "true"
+
+# ConfigMap for additional service configuration
+configmap:
+  enabled: true
+  data:
+    audit-service.yaml: |
+      log_level: INFO
+      retention_period_days: 2555
+      audit_batch_size: 100
+      enable_async_processing: true
+      enable_compression: true
+      enable_encryption: true
+      api_timeout_seconds: 30
+      max_retries: 3
+      backoff_factor: 2
+      max_connections: 20
+      queue_max_size: 10000
+      processing_threads: 4
+      archive_schedule: "0 1 * * *"  # Archive at 1 AM daily
+      health_check_interval: 60
+      metrics_enabled: true
+
+# Secret configuration - populated by external secrets management
+secrets:
+  enabled: true
+  data: {}
+
+# PostgreSQL configuration for audit database
+postgresql:
+  enabled: true
+  auth:
+    username: audit
+    database: audit_logs
+  primary:
+    persistence:
+      enabled: true
+      size: 100Gi
+      storageClass: "gp3"
+    resources:
+      requests:
+        cpu: "1000m"
+        memory: "2Gi"
+      limits:
+        cpu: "2000m"
+        memory: "4Gi"
+  metrics:
+    enabled: true
+  volumePermissions:
+    enabled: true
+
+# RabbitMQ configuration for async message processing
+rabbitmq:
+  enabled: true
+  auth:
+    username: audit
+    vhost: audit
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClass: "gp3"
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+  metrics:
+    enabled: true
+  plugins: rabbitmq_management rabbitmq_prometheus
