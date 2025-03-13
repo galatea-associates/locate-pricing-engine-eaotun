@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cache-service.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cache-service.labels" . | nindent 4 }}
+  annotations:
+    description: "Cache Service for Borrow Rate & Locate Fee Pricing Engine"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "cache-service.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cache-service.selectorLabels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          env:
+            - name: ENVIRONMENT
+              value: "{{ .Values.env.environment }}"
+            - name: LOG_LEVEL
+              value: "{{ .Values.env.logLevel }}"
+            - name: REDIS_HOST
+              value: "{{ .Values.redis.host | default (printf "%s-redis" (include "cache-service.fullname" .)) }}"
+            - name: REDIS_PORT
+              value: "{{ .Values.redis.port | default "6379" }}"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.redis.existingSecret | default (printf "%s-redis" (include "cache-service.fullname" .)) }}"
+                  key: "{{ .Values.redis.existingSecretPasswordKey | default "redis-password" }}"
+            - name: REDIS_DB
+              value: "{{ .Values.env.redisDb | default "0" }}"
+            - name: REDIS_MAX_CONNECTIONS
+              value: "{{ .Values.env.redisMaxConnections | default "100" }}"
+            - name: BORROW_RATE_TTL
+              value: "{{ .Values.env.borrowRateTtl | default "300" }}"
+            - name: VOLATILITY_TTL
+              value: "{{ .Values.env.volatilityTtl | default "900" }}"
+            - name: EVENT_RISK_TTL
+              value: "{{ .Values.env.eventRiskTtl | default "3600" }}"
+            - name: BROKER_CONFIG_TTL
+              value: "{{ .Values.env.brokerConfigTtl | default "1800" }}"
+            - name: CALCULATION_RESULT_TTL
+              value: "{{ .Values.env.calculationResultTtl | default "60" }}"
+            - name: ENABLE_METRICS
+              value: "{{ .Values.env.enableMetrics | default "true" }}"
+            - name: ENABLE_TRACING
+              value: "{{ .Values.env.enableTracing | default "true" }}"
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/config
+            - name: cache-data
+              mountPath: /data
+            - name: tmp-volume
+              mountPath: /tmp
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ include "cache-service.fullname" . }}-config
+        - name: cache-data
+          persistentVolumeClaim:
+            claimName: {{ include "cache-service.fullname" . }}-data
+        - name: tmp-volume
+          emptyDir: {}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      affinity:
+        {{- toYaml .Values.affinity | nindent 8 }}
+      terminationGracePeriodSeconds: 30
