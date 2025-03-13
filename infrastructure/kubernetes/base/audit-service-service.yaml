@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: audit-service
+  namespace: borrow-rate-engine
+  labels:
+    app: audit-service
+    component: audit
+    part-of: borrow-rate-engine
+    environment: ${ENV}
+    managed-by: kustomize
+  annotations:
+    description: "Service for Audit Service component"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app: audit-service
+  sessionAffinity: None
