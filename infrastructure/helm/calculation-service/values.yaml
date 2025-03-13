@@ -1,0 +1,237 @@
+# Default values for calculation-service Helm chart
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Number of calculation service replicas to run
+# As per requirements, minimum 3 replicas for high availability
+replicaCount: 3
+
+# Container image configuration
+image:
+  repository: calculation-service
+  pullPolicy: IfNotPresent
+  tag: latest  # This should be overridden in deployment with specific version
+
+# Naming configurations
+nameOverride: ""
+fullnameOverride: "calculation-service"
+
+# Service configuration for internal communication
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+
+# Resource requests and limits as per resource allocation strategy
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+
+# Horizontal Pod Autoscaler configuration
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+    - type: Pods
+      pods:
+        metric:
+          name: requests_per_second
+        target:
+          type: AverageValue
+          averageValue: 700
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 3
+          periodSeconds: 60
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+        - type: Percent
+          value: 20
+          periodSeconds: 60
+      selectPolicy: Min
+
+# Liveness probe to verify service health
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  timeoutSeconds: 3
+  successThreshold: 1
+  failureThreshold: 3
+
+# Readiness probe to verify service is ready to accept traffic
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 2
+  successThreshold: 1
+  failureThreshold: 3
+
+# Pod security context for running with least privilege
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# Container security context for enhanced security
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Node selector for targeted deployment
+nodeSelector:
+  kubernetes.io/role: application
+
+# Pod tolerations for node scheduling
+tolerations: []
+
+# Pod affinity rules to distribute pods across nodes and availability zones
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: component
+                operator: In
+                values:
+                  - calculation-service
+          topologyKey: kubernetes.io/hostname
+      - weight: 50
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: component
+                operator: In
+                values:
+                  - calculation-service
+          topologyKey: topology.kubernetes.io/zone
+
+# Environment variables for the calculation service
+env:
+  APP_NAME: borrow-rate-engine
+  LOG_LEVEL: INFO
+  ENABLE_METRICS: "true"
+  ENABLE_TRACING: "true"
+  DATA_SERVICE_URL: http://data-service:8000
+  CACHE_SERVICE_URL: http://cache-service:8000
+  REQUEST_TIMEOUT: "5"
+  VOLATILITY_ADJUSTMENT_FACTOR: "0.01"
+  EVENT_RISK_ADJUSTMENT_FACTOR: "0.005"
+  MIN_BORROW_RATE: "0.0025"
+  DEFAULT_VOLATILITY_INDEX: "20.0"
+  DEFAULT_EVENT_RISK_FACTOR: "0"
+  ENABLE_FALLBACK: "true"
+  CALCULATION_PRECISION: "4"
+  DAYS_IN_YEAR: "365"
+  DEFAULT_MARKUP_PERCENTAGE: "0.05"
+  DEFAULT_TRANSACTION_FEE_FLAT: "10.0"
+  DEFAULT_TRANSACTION_FEE_PERCENTAGE: "0.01"
+  ENABLE_AUDIT_LOGGING: "true"
+  AUDIT_QUEUE_NAME: audit_events
+
+# ConfigMap for application configuration
+configmap:
+  enabled: true
+  name: calculation-service-config
+  data:
+    APP_NAME: borrow-rate-engine
+    LOG_LEVEL: INFO
+    ENABLE_METRICS: "true"
+    ENABLE_TRACING: "true"
+    DATA_SERVICE_URL: http://data-service:8000
+    CACHE_SERVICE_URL: http://cache-service:8000
+    REQUEST_TIMEOUT: "5"
+    VOLATILITY_ADJUSTMENT_FACTOR: "0.01"
+    EVENT_RISK_ADJUSTMENT_FACTOR: "0.005"
+    MIN_BORROW_RATE: "0.0025"
+    DEFAULT_VOLATILITY_INDEX: "20.0"
+    DEFAULT_EVENT_RISK_FACTOR: "0"
+    ENABLE_FALLBACK: "true"
+    CALCULATION_PRECISION: "4"
+    DAYS_IN_YEAR: "365"
+    DEFAULT_MARKUP_PERCENTAGE: "0.05"
+    DEFAULT_TRANSACTION_FEE_FLAT: "10.0"
+    DEFAULT_TRANSACTION_FEE_PERCENTAGE: "0.01"
+    ENABLE_AUDIT_LOGGING: "true"
+    AUDIT_QUEUE_NAME: audit_events
+
+# Secrets configuration for secure credential management
+secrets:
+  enabled: true
+  redis:
+    name: redis-credentials
+    keys:
+      - host
+      - port
+      - password
+  rabbitmq:
+    name: rabbitmq-credentials
+    keys:
+      - url
+
+# Redis configuration for caching layer
+# bitnami/redis ^17.0.0
+redis:
+  enabled: true
+  architecture: replication
+  auth:
+    enabled: true
+    sentinel: true
+    password: ""  # Will be populated from secrets in production
+  master:
+    persistence:
+      enabled: true
+      size: 8Gi
+  replica:
+    replicaCount: 2
+    persistence:
+      enabled: true
+      size: 8Gi
+  sentinel:
+    enabled: true
+  metrics:
+    enabled: true
+
+# Common Helm chart helpers and templates
+# bitnami/common ^1.0.0
+common:
+  enabled: true
