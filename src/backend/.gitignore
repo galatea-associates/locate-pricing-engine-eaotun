@@ -1,0 +1,50 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Unit test / coverage reports
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Environment and local configuration
+.env
+.venv
+env/
+venv/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs and temporary files
+logs/
+*.log
+tmp/
+
+# Docker
+docker-compose.override.yml
+
+# Database
+*.sqlite3
+
+# Poetry
+poetry.lock
+
+# Application specific
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Alembic
+alembic.ini
