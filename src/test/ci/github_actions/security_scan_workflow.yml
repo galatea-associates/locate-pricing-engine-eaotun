@@ -1,0 +1,211 @@
+name: Security Scan
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+      - develop
+  schedule:
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+    inputs:
+      scan_level:
+        description: 'Security scan level (low, medium, high)'
+        required: false
+        default: 'high'
+        type: choice
+        options:
+          - low
+          - medium
+          - high
+      run_zap_scan:
+        description: 'Run OWASP ZAP scan'
+        required: false
+        default: 'true'
+        type: boolean
+      run_dependency_scan:
+        description: 'Run dependency vulnerability scan'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  PYTHON_VERSION: '3.11'
+  DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
+  IMAGE_NAME: borrow-rate-engine
+  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+  ZAP_API_KEY: ${{ secrets.ZAP_API_KEY }}
+  SECURITY_SCAN_LEVEL: high
+
+jobs:
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    if: "${{ github.event.inputs.run_dependency_scan != 'false' }}"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3 # actions/checkout: v3
+      - name: Set up Python
+        uses: actions/setup-python@v4 # actions/setup-python: v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Cache Python dependencies
+        uses: actions/cache@v3 # actions/cache: v3
+        with:
+          path: ~/.cache/pip
+          key: pip-security-${{ hashFiles('src/backend/requirements.txt', 'src/test/requirements.txt') }}
+          restore-keys: |
+            pip-security-
+      - name: Install dependencies
+        run: pip install -r src/backend/requirements.txt -r src/test/requirements.txt safety bandit
+      - name: Set up Snyk
+        uses: snyk/actions/setup@v1.1.0 # snyk/actions: v1.1.0
+      - name: Run Snyk dependency scan
+        run: snyk test --all-projects --severity-threshold=${{ github.event.inputs.scan_level || env.SECURITY_SCAN_LEVEL }}
+        env:
+          SNYK_TOKEN: ${{ env.SNYK_TOKEN }}
+      - name: Run Safety dependency check
+        run: safety check -r src/backend/requirements.txt -r src/test/requirements.txt --full-report --output json > safety-report.json
+      - name: Run custom dependency vulnerability tests
+        run: python -m pytest src/test/security_tests/test_dependency_vulnerabilities.py -v --junit-xml=dependency-test-results.xml
+      - name: Upload dependency scan results
+        uses: actions/upload-artifact@v3 # actions/upload-artifact: v3
+        with:
+          name: dependency-scan-results
+          path: |
+            safety-report.json
+            dependency-test-results.xml
+          retention-days: 14
+
+  static-code-analysis:
+    name: Static Code Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3 # actions/checkout: v3
+      - name: Set up Python
+        uses: actions/setup-python@v4 # actions/setup-python: v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2 # github/codeql-action: v2
+        with:
+          languages: python
+          queries: security-extended
+      - name: Run Bandit static code analysis
+        run: pip install bandit && bandit -r src/backend -f json -o bandit-results.json
+      - name: Run CodeQL Analysis
+        uses: github/codeql-action/analyze@v2 # github/codeql-action: v2
+      - name: Upload static analysis results
+        uses: actions/upload-artifact@v3 # actions/upload-artifact: v3
+        with:
+          name: static-analysis-results
+          path: bandit-results.json
+          retention-days: 14
+
+  security-tests:
+    name: Security Tests
+    runs-on: ubuntu-latest
+    needs: [dependency-scan, static-code-analysis]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3 # actions/checkout: v3
+      - name: Set up Python
+        uses: actions/setup-python@v4 # actions/setup-python: v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2 # docker/setup-buildx-action: v2
+      - name: Login to Container Registry
+        uses: docker/login-action@v2 # docker/login-action: v2
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - name: Cache Python dependencies
+        uses: actions/cache@v3 # actions/cache: v3
+        with:
+          path: ~/.cache/pip
+          key: pip-security-tests-${{ hashFiles('src/test/requirements.txt') }}
+          restore-keys: |
+            pip-security-tests-
+      - name: Install dependencies
+        run: pip install -r src/test/requirements.txt
+      - name: Start mock servers
+        run: docker-compose -f src/test/mock_servers/docker-compose.yml up -d
+      - name: Set up test environment
+        run: docker-compose -f src/test/docker/docker-compose.test.yml up -d
+      - name: Wait for services to be ready
+        run: sleep 15
+      - name: Run security tests
+        run: src/test/scripts/run_security_tests.sh --junit-report --html-report --markers="security"
+        env:
+          TEST_IMAGE: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+      - name: Upload security test reports
+        if: always()
+        uses: actions/upload-artifact@v3 # actions/upload-artifact: v3
+        with:
+          name: security-test-reports
+          path: src/test/reports/
+          retention-days: 14
+      - name: Tear down test environment
+        if: always()
+        run: docker-compose -f src/test/docker/docker-compose.test.yml down -v && docker-compose -f src/test/mock_servers/docker-compose.yml down -v
+
+  zap-scan:
+    name: OWASP ZAP Scan
+    runs-on: ubuntu-latest
+    if: "${{ github.event.inputs.run_zap_scan != 'false' }}"
+    needs: [security-tests]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3 # actions/checkout: v3
+      - name: Set up test environment
+        run: docker-compose -f src/test/docker/docker-compose.test.yml up -d
+      - name: Wait for services to be ready
+        run: sleep 15
+      - name: Run ZAP Scan
+        uses: zaproxy/action-baseline@v0.7.0 # zaproxy/action-baseline: v0.7.0
+        with:
+          target: http://localhost:8000
+          rules_file_name: src/test/security_tests/config/zap-rules.tsv
+          cmd_options: '-a -j -z "-config api.key=${{ env.ZAP_API_KEY }}"'
+      - name: Upload ZAP Scan Results
+        uses: actions/upload-artifact@v3 # actions/upload-artifact: v3
+        with:
+          name: zap-scan-results
+          path: zap-*
+          retention-days: 14
+      - name: Tear down test environment
+        if: always()
+        run: docker-compose -f src/test/docker/docker-compose.test.yml down -v
+
+  security-report:
+    name: Generate Security Report
+    runs-on: ubuntu-latest
+    needs: [dependency-scan, static-code-analysis, security-tests, zap-scan]
+    if: always()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3 # actions/checkout: v3
+      - name: Set up Python
+        uses: actions/setup-python@v4 # actions/setup-python: v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3 # actions/download-artifact: v3
+        with:
+          path: security-artifacts
+      - name: Install reporting dependencies
+        run: pip install jinja2 markdown
+      - name: Generate consolidated security report
+        run: python src/test/scripts/generate_test_report.py --type security --input-dir security-artifacts --output-file security-report.html
+      - name: Upload consolidated report
+        uses: actions/upload-artifact@v3 # actions/upload-artifact: v3
+        with:
+          name: consolidated-security-report
+          path: security-report.html
+          retention-days: 30
