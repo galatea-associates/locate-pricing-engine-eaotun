@@ -1,0 +1,134 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "calculation-service.fullname" . }}
+  labels:
+    {{- include "calculation-service.labels" . | nindent 4 }}
+  annotations:
+    description: "Calculation Service for Borrow Rate & Locate Fee Pricing Engine"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  # Ensures high availability with minimum 3 replicas as per requirements
+  replicas: {{ .Values.replicaCount }}
+  # Implements rolling update strategy for zero-downtime deployments
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "calculation-service.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "calculation-service.selectorLabels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Security context for pod to run with least privilege
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Security context for container to enhance security
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          # Health checks to verify service is running and ready to accept traffic
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          # Resource requests and limits as per resource allocation strategy
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          env:
+            - name: ENVIRONMENT
+              value: {{ .Release.Namespace }}
+            - name: LOG_LEVEL
+              value: {{ .Values.env.LOG_LEVEL }}
+            - name: APP_NAME
+              value: {{ .Values.env.APP_NAME }}
+            - name: ENABLE_METRICS
+              value: {{ .Values.env.ENABLE_METRICS | quote }}
+            - name: ENABLE_TRACING
+              value: {{ .Values.env.ENABLE_TRACING | quote }}
+            - name: DATA_SERVICE_URL
+              value: {{ .Values.env.DATA_SERVICE_URL }}
+            - name: CACHE_SERVICE_URL
+              value: {{ .Values.env.CACHE_SERVICE_URL }}
+            - name: REQUEST_TIMEOUT
+              value: {{ .Values.env.REQUEST_TIMEOUT | quote }}
+            - name: VOLATILITY_ADJUSTMENT_FACTOR
+              value: {{ .Values.env.VOLATILITY_ADJUSTMENT_FACTOR | quote }}
+            - name: EVENT_RISK_ADJUSTMENT_FACTOR
+              value: {{ .Values.env.EVENT_RISK_ADJUSTMENT_FACTOR | quote }}
+            - name: MIN_BORROW_RATE
+              value: {{ .Values.env.MIN_BORROW_RATE | quote }}
+            - name: DEFAULT_VOLATILITY_INDEX
+              value: {{ .Values.env.DEFAULT_VOLATILITY_INDEX | quote }}
+            - name: DEFAULT_EVENT_RISK_FACTOR
+              value: {{ .Values.env.DEFAULT_EVENT_RISK_FACTOR | quote }}
+            - name: ENABLE_FALLBACK
+              value: {{ .Values.env.ENABLE_FALLBACK | quote }}
+            - name: CALCULATION_PRECISION
+              value: {{ .Values.env.CALCULATION_PRECISION | quote }}
+            - name: DAYS_IN_YEAR
+              value: {{ .Values.env.DAYS_IN_YEAR | quote }}
+            - name: ENABLE_AUDIT_LOGGING
+              value: {{ .Values.env.ENABLE_AUDIT_LOGGING | quote }}
+            - name: AUDIT_QUEUE_NAME
+              value: {{ .Values.env.AUDIT_QUEUE_NAME }}
+          # Mount ConfigMap and secure temporary storage
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/config
+            - name: tmp-volume
+              mountPath: /tmp
+          # Reference secrets for secure credentials
+          envFrom:
+            {{- if .Values.configmap.enabled }}
+            - configMapRef:
+                name: {{ .Values.configmap.name }}
+            {{- end }}
+            {{- if .Values.secrets.enabled }}
+            {{- if .Values.secrets.redis.name }}
+            - secretRef:
+                name: {{ .Values.secrets.redis.name }}
+            {{- end }}
+            {{- if .Values.secrets.rabbitmq.name }}
+            - secretRef:
+                name: {{ .Values.secrets.rabbitmq.name }}
+            {{- end }}
+            {{- end }}
+      # Volumes for configuration and temporary storage
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ .Values.configmap.name }}
+        - name: tmp-volume
+          emptyDir: {}
+      # Distribute pods across nodes and availability zones for high availability
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 30
