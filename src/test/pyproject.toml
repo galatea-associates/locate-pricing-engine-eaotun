@@ -1,0 +1,113 @@
+[tool.poetry]
+name = "borrow-rate-pricing-engine-tests"
+version = "0.1.0"
+description = "Test suite for the Borrow Rate & Locate Fee Pricing Engine"
+authors = ["Financial Engineering Team <engineering@example.com>"]
+readme = "README.md"
+repository = "https://github.com/organization/borrow-rate-pricing-engine"
+packages = [
+    { include = "test" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: OS Independent",
+    "Topic :: Office/Business :: Financial",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Private :: Do Not Upload"
+]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+pytest = "^7.4.0"  # Testing framework for writing and running tests
+pytest-cov = "^4.1.0"  # Coverage plugin for pytest to measure code coverage
+pytest-asyncio = "^0.21.0"  # Pytest plugin for testing asyncio code
+pytest-xdist = "^3.3.0"  # Pytest plugin for distributed testing and parallel test execution
+pytest-timeout = "^2.1.0"  # Pytest plugin to timeout tests to prevent hanging
+pytest-mock = "^3.11.0"  # Pytest plugin for mocking dependencies in tests
+pytest-env = "^0.8.0"  # Pytest plugin to set environment variables for tests
+fastapi = "^0.103.0"  # Web framework for building APIs, used for testing API endpoints and mock servers
+httpx = "^0.25.0"  # Async HTTP client for making requests to APIs in tests
+requests = "^2.31.0"  # HTTP library for making requests to APIs in tests
+uvicorn = "^0.23.2"  # ASGI server for running FastAPI applications in mock servers
+pydantic = "^2.4.0"  # Data validation and settings management for API models and test configuration
+python-dotenv = "^1.0.0"  # Load environment variables from .env files for test configuration
+faker = "^19.3.0"  # Library for generating fake data for tests
+pandas = "^2.1.0"  # Data analysis library for test data manipulation and validation
+numpy = "^1.24.0"  # Numerical computing library for test calculations
+locust = "^2.15.0"  # Load testing tool for performance testing
+testcontainers = "^5.0.0"  # Python library for creating and managing Docker containers in tests
+psycopg2-binary = "^2.9.0"  # PostgreSQL database adapter for Python for database testing
+sqlalchemy = "^2.0.0"  # SQL toolkit and ORM for database interactions in tests
+redis = "^4.5.0"  # Python client for Redis for cache testing
+python-jose = "^3.3.0"  # JavaScript Object Signing and Encryption implementation for JWT token testing
+pyjwt = "^2.6.0"  # JWT token analysis and manipulation for security testing
+python-owasp-zap-v2.4 = "^0.0.20"  # Python client for OWASP ZAP API for security testing
+safety = "^2.3.0"  # Check installed dependencies for known security vulnerabilities
+matplotlib = "^3.7.1"  # Plotting library for visualizing test results
+seaborn = "^0.12.2"  # Statistical data visualization based on matplotlib
+prometheus-client = "^0.16.0"  # Prometheus monitoring integration for metrics collection
+pyyaml = "^6.0.1"  # YAML parser and emitter for configuration files
+aiohttp = "^3.8.5"  # Asynchronous HTTP client/server for mock servers in tests
+tqdm = "^4.65.0"  # Fast, extensible progress bar for Python for displaying test progress
+
+[tool.poetry.group.dev.dependencies]
+black = "^23.7.0"  # Code formatter to ensure consistent code style in tests
+isort = "^5.12.0"  # Utility to sort imports alphabetically and automatically separated into sections
+flake8 = "^6.1.0"  # Tool for style guide enforcement and linting
+mypy = "^1.5.0"  # Static type checker for Python
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+include = "\\.(py)$"
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+
+[tool.pytest]
+testpaths = ["src/test"]
+python_files = "test_*.py"
+python_functions = "test_*"
+markers = [
+    "unit: marks unit tests",
+    "integration: marks integration tests",
+    "e2e: marks end-to-end tests",
+    "performance: marks performance tests",
+    "security: marks security tests",
+    "compliance: marks compliance tests",
+    "slow: marks tests that take longer than 1s to run",
+    "flaky: marks tests that are known to be flaky",
+    "external_api: marks tests that require external API access",
+]
+addopts = "--strict-markers --cov=src/backend --cov-report=term --cov-report=xml:src/test/reports/coverage.xml --junitxml=src/test/reports/junit.xml"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[tool.poetry.scripts]
+test = "pytest"
+test:unit = "pytest -m unit"
+test:integration = "pytest -m integration"
+test:e2e = "pytest -m e2e"
+test:performance = "pytest -m performance"
+test:security = "pytest -m security"
+test:compliance = "pytest -m compliance"
+lint = "flake8 src/test"
+format = "black src/test && isort src/test"
+typecheck = "mypy src/test"
+load-test = "python -m src.test.load_testing.locustfile"
+run-mock-servers = "python -m src.test.scripts.run_mock_servers"
+generate-test-report = "python -m src.test.scripts.generate_test_report"
+clean-test-data = "python -m src.test.scripts.clean_test_data"
