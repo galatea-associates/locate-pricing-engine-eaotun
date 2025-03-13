@@ -1,0 +1,67 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Reference the base configuration
+resources:
+  - ../../base
+
+# Staging-specific namespace
+namespace: borrow-rate-engine-staging
+
+# Apply strategic merge patches for ConfigMaps
+patchesStrategicMerge:
+  - configmap-patch.yaml
+
+# Generate additional staging-specific ConfigMap
+configMapGenerator:
+  - name: staging-environment-config
+    literals:
+      - ENVIRONMENT=staging
+      - LOG_LEVEL=INFO
+      - ENABLE_SWAGGER=true
+      - ENABLE_METRICS=true
+      - ENABLE_TRACING=true
+      - ENABLE_FALLBACK=true
+      - ENABLE_CACHE=true
+      - ENABLE_AUDIT_LOGGING=true
+
+# Define replica counts for staging
+replicas:
+  - name: api-gateway
+    count: 3
+  - name: calculation-service
+    count: 3
+  - name: data-service
+    count: 3
+  - name: cache-service
+    count: 2
+  - name: audit-service
+    count: 2
+
+# Define staging-specific images
+images:
+  - name: ${ECR_REPO}/api-gateway
+    newName: 123456789012.dkr.ecr.us-east-1.amazonaws.com/borrow-rate-engine/api-gateway
+    newTag: staging
+  - name: ${ECR_REPO}/calculation-service
+    newName: 123456789012.dkr.ecr.us-east-1.amazonaws.com/borrow-rate-engine/calculation-service
+    newTag: staging
+  - name: ${ECR_REPO}/data-service
+    newName: 123456789012.dkr.ecr.us-east-1.amazonaws.com/borrow-rate-engine/data-service
+    newTag: staging
+  - name: ${ECR_REPO}/cache-service
+    newName: 123456789012.dkr.ecr.us-east-1.amazonaws.com/borrow-rate-engine/cache-service
+    newTag: staging
+  - name: ${ECR_REPO}/audit-service
+    newName: 123456789012.dkr.ecr.us-east-1.amazonaws.com/borrow-rate-engine/audit-service
+    newTag: staging
+
+# Define variables
+vars:
+  - name: ENV
+    objref:
+      kind: ConfigMap
+      name: staging-environment-config
+      apiVersion: v1
+    fieldref:
+      fieldpath: data.ENVIRONMENT
