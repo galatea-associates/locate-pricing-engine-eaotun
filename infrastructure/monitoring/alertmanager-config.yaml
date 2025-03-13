@@ -1,0 +1,398 @@
+# Alertmanager configuration for Borrow Rate & Locate Fee Pricing Engine
+# Version: 0.25.0+
+
+global:
+  # The smarthost and SMTP sender used for mail notifications.
+  smtp_from: alertmanager@example.com
+  smtp_smarthost: smtp.example.com:587
+  smtp_auth_username: ${SMTP_USERNAME}
+  smtp_auth_password: ${SMTP_PASSWORD}
+  smtp_require_tls: true
+
+  # The PagerDuty API URL for integrations
+  pagerduty_url: https://events.pagerduty.com/v2/enqueue
+  
+  # The Slack API URL for webhook-based notifications
+  slack_api_url: https://hooks.slack.com/services/${SLACK_API_TOKEN}
+  
+  # How long to wait before resolving an alert that has become inactive
+  resolve_timeout: 5m
+
+# The root route on which all alerts enter
+route:
+  # The default receiver for any alert that doesn't match specific routes
+  receiver: default
+  
+  # Group alerts by these labels to avoid notification spam
+  group_by: ['alertname', 'cluster', 'service']
+  
+  # Wait at least 30s to send a notification for a group
+  group_wait: 30s
+  
+  # Wait 5m before sending a notification about new alerts for a group
+  group_interval: 5m
+  
+  # Wait 4h before resending a notification for a group
+  repeat_interval: 4h
+  
+  # Nested routes for specific alert matching
+  routes:
+    # Critical severity alerts to PagerDuty
+    - match:
+        severity: critical
+      receiver: pagerduty-critical
+      group_wait: 30s
+      group_interval: 1m
+      repeat_interval: 30m
+      continue: true  # Continue matching other routes
+    
+    # Critical severity alerts to Slack
+    - match:
+        severity: critical
+      receiver: slack-critical
+      group_wait: 30s
+      group_interval: 1m
+      repeat_interval: 30m
+    
+    # High severity alerts to PagerDuty
+    - match:
+        severity: high
+      receiver: pagerduty-high
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 1h
+      continue: true
+    
+    # High severity alerts to Slack
+    - match:
+        severity: high
+      receiver: slack-high
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 1h
+    
+    # Medium severity alerts to Slack
+    - match:
+        severity: medium
+      receiver: slack-medium
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 2h
+    
+    # Low severity alerts to Slack
+    - match:
+        severity: low
+      receiver: slack-low
+      group_wait: 1m
+      group_interval: 10m
+      repeat_interval: 4h
+    
+    # Team-based routing for API services
+    - match_re:
+        service: api-gateway|calculation-service
+      receiver: team-api
+      continue: true
+    
+    # Team-based routing for data services
+    - match_re:
+        service: data-service|external-api-client
+      receiver: team-data
+      continue: true
+    
+    # Team-based routing for cache services
+    - match_re:
+        service: cache-service|redis
+      receiver: team-cache
+      continue: true
+    
+    # Team-based routing for database services
+    - match_re:
+        service: database|postgresql
+      receiver: team-database
+      continue: true
+    
+    # Business alerts routing
+    - match:
+        category: business
+      receiver: team-business
+      continue: true
+
+# Inhibition rules suppress alerts of lower severity when
+# there are alerts of higher severity already firing
+inhibit_rules:
+  # Inhibit high-severity alerts when critical alerts exist for the same service
+  - source_match:
+      severity: critical
+    target_match:
+      severity: high
+    equal: ['alertname', 'cluster', 'service']
+  
+  # Inhibit medium-severity alerts when high alerts exist for the same service
+  - source_match:
+      severity: high
+    target_match:
+      severity: medium
+    equal: ['alertname', 'cluster', 'service']
+  
+  # Inhibit low-severity alerts when medium alerts exist for the same service
+  - source_match:
+      severity: medium
+    target_match:
+      severity: low
+    equal: ['alertname', 'cluster', 'service']
+
+# Notification receivers configuration
+receivers:
+  # Default receiver - email only
+  - name: default
+    email_configs:
+      - to: alerts@example.com
+        send_resolved: true
+  
+  # Critical severity PagerDuty receiver
+  - name: pagerduty-critical
+    pagerduty_configs:
+      - service_key: ${PAGERDUTY_SERVICE_KEY_CRITICAL}
+        description: '{{ .CommonAnnotations.summary }}'
+        details:
+          severity: '{{ .CommonLabels.severity }}'
+          cluster: '{{ .CommonLabels.cluster }}'
+          service: '{{ .CommonLabels.service }}'
+          instance: '{{ .CommonLabels.instance }}'
+          description: '{{ .CommonAnnotations.description }}'
+        client: 'Alertmanager'
+        client_url: '{{ template "pagerduty.default.clientURL" . }}'
+        severity: 'critical'
+        class: '{{ .CommonLabels.alertname }}'
+        component: '{{ .CommonLabels.service }}'
+        group: '{{ .CommonLabels.cluster }}'
+        send_resolved: true
+  
+  # High severity PagerDuty receiver
+  - name: pagerduty-high
+    pagerduty_configs:
+      - service_key: ${PAGERDUTY_SERVICE_KEY_HIGH}
+        description: '{{ .CommonAnnotations.summary }}'
+        details:
+          severity: '{{ .CommonLabels.severity }}'
+          cluster: '{{ .CommonLabels.cluster }}'
+          service: '{{ .CommonLabels.service }}'
+          instance: '{{ .CommonLabels.instance }}'
+          description: '{{ .CommonAnnotations.description }}'
+        client: 'Alertmanager'
+        client_url: '{{ template "pagerduty.default.clientURL" . }}'
+        severity: 'high'
+        class: '{{ .CommonLabels.alertname }}'
+        component: '{{ .CommonLabels.service }}'
+        group: '{{ .CommonLabels.cluster }}'
+        send_resolved: true
+  
+  # Critical severity Slack receiver
+  - name: slack-critical
+    slack_configs:
+      - channel: '#alerts-critical'
+        send_resolved: true
+        icon_emoji: ':red_circle:'
+        title: '{{ .CommonAnnotations.summary }}'
+        text: >-
+          <!channel> *CRITICAL ALERT*
+          {{ .CommonAnnotations.description }}
+          *Severity:* {{ .CommonLabels.severity }}
+          *Service:* {{ .CommonLabels.service }}
+          *Instance:* {{ .CommonLabels.instance }}
+          *Cluster:* {{ .CommonLabels.cluster }}
+        actions:
+          - type: button
+            text: Runbook
+            url: '{{ .CommonAnnotations.runbook_url }}'
+          - type: button
+            text: Dashboard
+            url: '{{ .CommonAnnotations.dashboard_url }}'
+          - type: button
+            text: Silence
+            url: '{{ template "slack.default.silenceURL" . }}'
+  
+  # High severity Slack receiver
+  - name: slack-high
+    slack_configs:
+      - channel: '#alerts-high'
+        send_resolved: true
+        icon_emoji: ':orange_circle:'
+        title: '{{ .CommonAnnotations.summary }}'
+        text: >-
+          <!here> *HIGH ALERT*
+          {{ .CommonAnnotations.description }}
+          *Severity:* {{ .CommonLabels.severity }}
+          *Service:* {{ .CommonLabels.service }}
+          *Instance:* {{ .CommonLabels.instance }}
+          *Cluster:* {{ .CommonLabels.cluster }}
+        actions:
+          - type: button
+            text: Runbook
+            url: '{{ .CommonAnnotations.runbook_url }}'
+          - type: button
+            text: Dashboard
+            url: '{{ .CommonAnnotations.dashboard_url }}'
+          - type: button
+            text: Silence
+            url: '{{ template "slack.default.silenceURL" . }}'
+  
+  # Medium severity Slack receiver
+  - name: slack-medium
+    slack_configs:
+      - channel: '#alerts-medium'
+        send_resolved: true
+        icon_emoji: ':yellow_circle:'
+        title: '{{ .CommonAnnotations.summary }}'
+        text: >-
+          *MEDIUM ALERT*
+          {{ .CommonAnnotations.description }}
+          *Severity:* {{ .CommonLabels.severity }}
+          *Service:* {{ .CommonLabels.service }}
+          *Instance:* {{ .CommonLabels.instance }}
+          *Cluster:* {{ .CommonLabels.cluster }}
+        actions:
+          - type: button
+            text: Runbook
+            url: '{{ .CommonAnnotations.runbook_url }}'
+          - type: button
+            text: Dashboard
+            url: '{{ .CommonAnnotations.dashboard_url }}'
+          - type: button
+            text: Silence
+            url: '{{ template "slack.default.silenceURL" . }}'
+  
+  # Low severity Slack receiver
+  - name: slack-low
+    slack_configs:
+      - channel: '#alerts-low'
+        send_resolved: true
+        icon_emoji: ':blue_circle:'
+        title: '{{ .CommonAnnotations.summary }}'
+        text: >-
+          *LOW ALERT*
+          {{ .CommonAnnotations.description }}
+          *Severity:* {{ .CommonLabels.severity }}
+          *Service:* {{ .CommonLabels.service }}
+          *Instance:* {{ .CommonLabels.instance }}
+          *Cluster:* {{ .CommonLabels.cluster }}
+        actions:
+          - type: button
+            text: Runbook
+            url: '{{ .CommonAnnotations.runbook_url }}'
+          - type: button
+            text: Dashboard
+            url: '{{ .CommonAnnotations.dashboard_url }}'
+          - type: button
+            text: Silence
+            url: '{{ template "slack.default.silenceURL" . }}'
+  
+  # API team Slack receiver
+  - name: team-api
+    slack_configs:
+      - channel: '#team-api'
+        send_resolved: true
+        title: '{{ .CommonAnnotations.summary }}'
+        text: >-
+          *ALERT: {{ .CommonLabels.alertname }}*
+          {{ .CommonAnnotations.description }}
+          *Severity:* {{ .CommonLabels.severity }}
+          *Service:* {{ .CommonLabels.service }}
+          *Instance:* {{ .CommonLabels.instance }}
+          *Cluster:* {{ .CommonLabels.cluster }}
+        actions:
+          - type: button
+            text: Runbook
+            url: '{{ .CommonAnnotations.runbook_url }}'
+          - type: button
+            text: Dashboard
+            url: '{{ .CommonAnnotations.dashboard_url }}'
+  
+  # Data team Slack receiver
+  - name: team-data
+    slack_configs:
+      - channel: '#team-data'
+        send_resolved: true
+        title: '{{ .CommonAnnotations.summary }}'
+        text: >-
+          *ALERT: {{ .CommonLabels.alertname }}*
+          {{ .CommonAnnotations.description }}
+          *Severity:* {{ .CommonLabels.severity }}
+          *Service:* {{ .CommonLabels.service }}
+          *Instance:* {{ .CommonLabels.instance }}
+          *Cluster:* {{ .CommonLabels.cluster }}
+        actions:
+          - type: button
+            text: Runbook
+            url: '{{ .CommonAnnotations.runbook_url }}'
+          - type: button
+            text: Dashboard
+            url: '{{ .CommonAnnotations.dashboard_url }}'
+  
+  # Cache team Slack receiver
+  - name: team-cache
+    slack_configs:
+      - channel: '#team-cache'
+        send_resolved: true
+        title: '{{ .CommonAnnotations.summary }}'
+        text: >-
+          *ALERT: {{ .CommonLabels.alertname }}*
+          {{ .CommonAnnotations.description }}
+          *Severity:* {{ .CommonLabels.severity }}
+          *Service:* {{ .CommonLabels.service }}
+          *Instance:* {{ .CommonLabels.instance }}
+          *Cluster:* {{ .CommonLabels.cluster }}
+        actions:
+          - type: button
+            text: Runbook
+            url: '{{ .CommonAnnotations.runbook_url }}'
+          - type: button
+            text: Dashboard
+            url: '{{ .CommonAnnotations.dashboard_url }}'
+  
+  # Database team Slack receiver
+  - name: team-database
+    slack_configs:
+      - channel: '#team-database'
+        send_resolved: true
+        title: '{{ .CommonAnnotations.summary }}'
+        text: >-
+          *ALERT: {{ .CommonLabels.alertname }}*
+          {{ .CommonAnnotations.description }}
+          *Severity:* {{ .CommonLabels.severity }}
+          *Service:* {{ .CommonLabels.service }}
+          *Instance:* {{ .CommonLabels.instance }}
+          *Cluster:* {{ .CommonLabels.cluster }}
+        actions:
+          - type: button
+            text: Runbook
+            url: '{{ .CommonAnnotations.runbook_url }}'
+          - type: button
+            text: Dashboard
+            url: '{{ .CommonAnnotations.dashboard_url }}'
+  
+  # Business team receivers (Slack and email)
+  - name: team-business
+    slack_configs:
+      - channel: '#team-business'
+        send_resolved: true
+        title: '{{ .CommonAnnotations.summary }}'
+        text: >-
+          *BUSINESS ALERT: {{ .CommonLabels.alertname }}*
+          {{ .CommonAnnotations.description }}
+          *Severity:* {{ .CommonLabels.severity }}
+          *Service:* {{ .CommonLabels.service }}
+          *Metric:* {{ .CommonLabels.metric }}
+          *Cluster:* {{ .CommonLabels.cluster }}
+        actions:
+          - type: button
+            text: Dashboard
+            url: '{{ .CommonAnnotations.dashboard_url }}'
+    email_configs:
+      - to: business-team@example.com
+        send_resolved: true
+        html: '{{ template "email.business.html" . }}'
+
+# Custom template files location
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
