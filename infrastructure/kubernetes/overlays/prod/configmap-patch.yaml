@@ -1,0 +1,121 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-gateway-config
+data:
+  LOG_LEVEL: "WARNING"
+  ENABLE_METRICS: "true"
+  ENABLE_TRACING: "true"
+  REQUEST_TIMEOUT: "3"
+  DEFAULT_RATE_LIMIT: "60"
+  PREMIUM_RATE_LIMIT: "300"
+  INTERNAL_RATE_LIMIT: "1000"
+  RATE_LIMIT_WINDOW: "60"
+  RATE_LIMIT_BURST: "50"
+  CORS_ORIGINS: "https://trading.example.com,https://admin.example.com"
+  CORS_METHODS: "GET,POST,OPTIONS"
+  CORS_HEADERS: "Authorization,Content-Type,X-API-Key"
+  ENABLE_SWAGGER: "false"
+  ENABLE_AUTH: "true"
+  AUTH_HEADER_NAME: "X-API-Key"
+  JWT_EXPIRATION: "600"
+  JWT_ALGORITHM: "HS256"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: calculation-service-config
+data:
+  LOG_LEVEL: "WARNING"
+  ENABLE_METRICS: "true"
+  ENABLE_TRACING: "true"
+  REQUEST_TIMEOUT: "3"
+  VOLATILITY_ADJUSTMENT_FACTOR: "0.01"
+  EVENT_RISK_ADJUSTMENT_FACTOR: "0.005"
+  MIN_BORROW_RATE: "0.0025"
+  DEFAULT_VOLATILITY_INDEX: "20.0"
+  DEFAULT_EVENT_RISK_FACTOR: "0"
+  ENABLE_FALLBACK: "true"
+  CALCULATION_PRECISION: "4"
+  DAYS_IN_YEAR: "365"
+  DEFAULT_MARKUP_PERCENTAGE: "0.05"
+  DEFAULT_TRANSACTION_FEE_FLAT: "10.0"
+  DEFAULT_TRANSACTION_FEE_PERCENTAGE: "0.01"
+  ENABLE_AUDIT_LOGGING: "true"
+  AUDIT_QUEUE_NAME: "prod_audit_events"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: data-service-config
+data:
+  LOG_LEVEL: "WARNING"
+  ENABLE_METRICS: "true"
+  ENABLE_TRACING: "true"
+  REQUEST_TIMEOUT: "3"
+  DB_POOL_SIZE: "20"
+  DB_MAX_OVERFLOW: "40"
+  DB_POOL_TIMEOUT: "30"
+  DB_POOL_RECYCLE: "1800"
+  SECLEND_API_BASE_URL: "https://api.seclend.com/api/v1"
+  MARKET_API_BASE_URL: "https://api.marketdata.com/api/v1"
+  EVENT_API_BASE_URL: "https://api.eventcalendar.com/api/v1"
+  ENABLE_CIRCUIT_BREAKER: "true"
+  CIRCUIT_BREAKER_FAILURE_THRESHOLD: "5"
+  CIRCUIT_BREAKER_RECOVERY_TIMEOUT: "60"
+  CIRCUIT_BREAKER_SUCCESS_THRESHOLD: "3"
+  ENABLE_FALLBACK: "true"
+  ENABLE_CACHE: "true"
+  API_RETRY_COUNT: "3"
+  API_RETRY_BACKOFF: "1.5"
+  API_TIMEOUT: "2"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cache-service-config
+data:
+  LOG_LEVEL: "WARNING"
+  ENABLE_METRICS: "true"
+  ENABLE_TRACING: "true"
+  REQUEST_TIMEOUT: "2"
+  REDIS_DB: "0"
+  REDIS_MAX_CONNECTIONS: "200"
+  REDIS_SOCKET_KEEPALIVE: "true"
+  REDIS_HEALTH_CHECK_INTERVAL: "15"
+  BORROW_RATE_TTL: "300"
+  VOLATILITY_TTL: "900"
+  EVENT_RISK_TTL: "3600"
+  BROKER_CONFIG_TTL: "1800"
+  CALCULATION_RESULT_TTL: "60"
+  MIN_RATE_TTL: "86400"
+  ENABLE_LOCAL_CACHE: "true"
+  LOCAL_CACHE_MAX_SIZE: "5000"
+  LOCAL_CACHE_TTL: "60"
+  ENABLE_PUBSUB: "true"
+  PUBSUB_CHANNEL: "prod_cache_invalidation"
+  ENABLE_CACHE_STATS: "true"
+  CACHE_WARMUP_ON_STARTUP: "true"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: audit-service-config
+data:
+  LOG_LEVEL: "WARNING"
+  ENABLE_METRICS: "true"
+  ENABLE_TRACING: "true"
+  REQUEST_TIMEOUT: "5"
+  AUDIT_QUEUE_NAME: "prod_audit_events"
+  AUDIT_RETENTION_DAYS: "2555"
+  AUDIT_BATCH_SIZE: "200"
+  AUDIT_PROCESSING_INTERVAL: "2"
+  ENABLE_S3_ARCHIVING: "true"
+  S3_BUCKET_NAME: "borrow-rate-engine-prod-audit-logs"
+  S3_ARCHIVE_INTERVAL_DAYS: "30"
+  ARCHIVE_OLDER_THAN_DAYS: "90"
+  ENABLE_TAMPER_PROTECTION: "true"
+  HASH_ALGORITHM: "SHA256"
+  ENABLE_COMPLIANCE_REPORTS: "true"
+  REPORT_GENERATION_CRON: "0 0 * * 0"
