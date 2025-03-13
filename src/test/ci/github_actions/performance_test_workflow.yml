@@ -1,0 +1,155 @@
+# GitHub Actions workflow configuration for running performance tests on the Borrow Rate & Locate Fee Pricing Engine.
+# This workflow validates the system's performance characteristics including response time, throughput, and resource utilization under various load conditions.
+name: Performance Tests
+
+# Workflow triggers
+on:
+  # Scheduled trigger to run tests daily at midnight UTC
+  schedule:
+    - cron: '0 0 * * *'
+
+  # Manual trigger to allow on-demand test execution with configurable inputs
+  workflow_dispatch:
+    inputs:
+      target_rps:
+        description: 'Target requests per second for load tests'
+        required: false
+        default: '1000'
+        type: number
+      test_duration:
+        description: 'Test duration in seconds'
+        required: false
+        default: '300'
+        type: number
+      concurrent_users:
+        description: 'Number of concurrent users for load tests'
+        required: false
+        default: '100'
+        type: number
+      run_endurance_test:
+        description: 'Run long-duration endurance test (hours)'
+        required: false
+        default: '0'
+        type: number
+      test_type:
+        description: 'Type of performance test to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - 'api-latency'
+          - 'calculation-speed'
+          - 'throughput'
+          - 'resilience'
+          - 'endurance'
+          - 'spike'
+
+# Define the job to execute performance tests
+jobs:
+  performance-tests:
+    # Specify the runner environment
+    runs-on: ubuntu-latest
+
+    # Define the steps to perform
+    steps:
+      # Step 1: Checkout the code repository
+      - name: Checkout code
+        uses: actions/checkout@v3 # actions/checkout: v3 - Action to checkout the repository code
+
+      # Step 2: Set up Python environment
+      - name: Set up Python
+        uses: actions/setup-python@v4 # actions/setup-python: v4 - Action to set up the Python environment
+        with:
+          python-version: '${{ env.PYTHON_VERSION }}'
+
+      # Step 3: Set up Docker Buildx for building test containers
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2 # docker/setup-buildx-action: v2 - Action to set up Docker Buildx
+
+      # Step 4: Login to the Container Registry
+      - name: Login to Container Registry
+        uses: docker/login-action@v2 # docker/login-action: v2 - Action to log in to the container registry
+        with:
+          registry: '${{ env.DOCKER_REGISTRY }}'
+          username: '${{ secrets.REGISTRY_USERNAME }}'
+          password: '${{ secrets.REGISTRY_PASSWORD }}'
+
+      # Step 5: Cache Python dependencies
+      - name: Cache Python dependencies
+        uses: actions/cache@v3 # actions/cache: v3 - Action to cache dependencies
+        with:
+          path: '~/.cache/pip'
+          key: pip-performance-${{ hashFiles('src/test/requirements.txt') }}
+          restore-keys: |
+            pip-performance-
+
+      # Step 6: Install Python dependencies
+      - name: Install dependencies
+        run: pip install -r src/test/requirements.txt
+
+      # Step 7: Set environment variables
+      - name: Set environment variables
+        run: |
+          echo "TARGET_RPS=${{ github.event.inputs.target_rps || env.TARGET_RPS }}" >> $GITHUB_ENV
+          echo "TEST_DURATION=${{ github.event.inputs.test_duration || env.TEST_DURATION }}" >> $GITHUB_ENV
+          echo "CONCURRENT_USERS=${{ github.event.inputs.concurrent_users || env.CONCURRENT_USERS }}" >> $GITHUB_ENV
+
+      # Step 8: Start mock servers using Docker Compose
+      - name: Start mock servers
+        run: docker-compose -f src/test/mock_servers/docker-compose.yml up -d
+
+      # Step 9: Set up test environment using Docker Compose
+      - name: Set up test environment
+        run: docker-compose -f src/test/docker/docker-compose.test.yml up -d
+
+      # Step 10: Wait for services to be ready
+      - name: Wait for services to be ready
+        run: sleep 15
+
+      # Step 11: Run performance tests
+      - name: Run performance tests
+        run: |
+          src/test/scripts/run_performance_tests.sh \
+          --target-rps=${{ env.TARGET_RPS }} \
+          --concurrent-users=${{ env.CONCURRENT_USERS }} \
+          ${{ github.event.inputs.test_type != 'all' && format('--skip-api-tests --skip-calculation-tests --skip-throughput-tests --skip-resilience-tests') || '' }} \
+          ${{ github.event.inputs.test_type == 'api-latency' && '--skip-setup' || '' }} \
+          ${{ github.event.inputs.test_type == 'calculation-speed' && '--skip-setup --skip-api-tests' || '' }} \
+          ${{ github.event.inputs.test_type == 'throughput' && '--skip-setup --skip-api-tests --skip-calculation-tests' || '' }} \
+          ${{ github.event.inputs.test_type == 'resilience' && '--skip-setup --skip-api-tests --skip-calculation-tests --skip-throughput-tests' || '' }} \
+          ${{ github.event.inputs.run_endurance_test > 0 && format('--endurance={0}', github.event.inputs.run_endurance_test) || '' }} \
+          ${{ github.event.inputs.test_type == 'endurance' && format('--skip-setup --skip-api-tests --skip-calculation-tests --skip-throughput-tests --skip-resilience-tests --endurance={0}', github.event.inputs.run_endurance_test || '1') || '' }} \
+          ${{ github.event.inputs.test_type == 'spike' && '--skip-setup --skip-api-tests --skip-calculation-tests --skip-resilience-tests' || '' }}
+
+      # Step 12: Upload performance test reports
+      - name: Upload performance test reports
+        if: always()
+        uses: actions/upload-artifact@v3 # actions/upload-artifact: v3 - Action to upload artifacts
+        with:
+          name: performance-test-reports
+          path: src/test/reports/performance/
+          retention-days: 30
+
+      # Step 13: Compare with previous results
+      - name: Compare with previous results
+        if: success()
+        run: python src/test/metrics/visualizers/generate_charts.py --compare-with-previous=5 --output-dir=src/test/reports/performance/comparison
+
+      # Step 14: Upload comparison reports
+      - name: Upload comparison reports
+        if: success()
+        uses: actions/upload-artifact@v3 # actions/upload-artifact: v3 - Action to upload artifacts
+        with:
+          name: performance-comparison-reports
+          path: src/test/reports/performance/comparison/
+          retention-days: 30
+
+      # Step 15: Check performance thresholds
+      - name: Check performance thresholds
+        run: python -c "import json; import sys; data = json.load(open('src/test/reports/performance/summary.json')); sys.exit(0 if data['overall_status'] == 'pass' else 1)"
+
+      # Step 16: Tear down test environment
+      - name: Tear down test environment
+        if: always()
+        run: docker-compose -f src/test/docker/docker-compose.test.yml down -v && docker-compose -f src/test/mock_servers/docker-compose.yml down -v
