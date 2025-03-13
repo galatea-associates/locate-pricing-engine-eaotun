@@ -1,0 +1,33 @@
+apiVersion: v2
+name: data-service
+description: Helm chart for the Data Service component of the Borrow Rate & Locate Fee Pricing Engine
+type: application
+version: 0.1.0
+appVersion: 1.0.0
+
+keywords:
+  - data-service
+  - borrow-rate-engine
+  - financial-services
+
+home: https://github.com/organization/borrow-rate-engine
+sources:
+  - https://github.com/organization/borrow-rate-engine
+
+maintainers:
+  - name: DevOps Team
+    email: devops@organization.com
+
+dependencies:
+  - name: common
+    repository: https://charts.bitnami.com/bitnami
+    version: ^1.0.0
+    condition: common.enabled
+    tags:
+      - bitnami-common
+  - name: redis
+    repository: https://charts.bitnami.com/bitnami
+    version: ^17.0.0
+    condition: redis.enabled
+    tags:
+      - cache-database
