@@ -1,0 +1,843 @@
+{
+  "info": {
+    "name": "Borrow Rate & Locate Fee Pricing Engine API",
+    "description": "REST API for calculating securities borrowing costs for short-selling operations",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "e8f3a123-4567-89ab-cdef-1234567890ab"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://api.example.com/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "apiKey",
+      "value": "your-api-key-here",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "key",
+        "value": "X-API-Key",
+        "type": "string"
+      },
+      {
+        "key": "value",
+        "value": "{{apiKey}}",
+        "type": "string"
+      },
+      {
+        "key": "in",
+        "value": "header",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Health Checks",
+      "description": "Endpoints for monitoring system health and availability",
+      "item": [
+        {
+          "name": "System Health",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Returns the current health status of the system and its components"
+          },
+          "response": [
+            {
+              "name": "Healthy System",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{baseUrl}}/health",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["health"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "status": "healthy",
+                "version": "1.0.0",
+                "components": {
+                  "database": "connected",
+                  "cache": "connected",
+                  "external_apis": "available"
+                },
+                "timestamp": "2023-10-15T14:30:22Z"
+              }
+            },
+            {
+              "name": "Degraded System",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{baseUrl}}/health",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["health"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "status": "degraded",
+                "version": "1.0.0",
+                "components": {
+                  "database": "connected",
+                  "cache": "connected",
+                  "external_apis": "unavailable"
+                },
+                "timestamp": "2023-10-15T14:30:22Z"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Readiness Check",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/health/readiness",
+              "host": ["{{baseUrl}}"],
+              "path": ["health", "readiness"]
+            },
+            "description": "Checks if the service is ready to accept requests"
+          },
+          "response": [
+            {
+              "name": "Service Ready",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{baseUrl}}/health/readiness",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["health", "readiness"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "status": "ready"
+              }
+            },
+            {
+              "name": "Service Not Ready",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{baseUrl}}/health/readiness",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["health", "readiness"]
+                }
+              },
+              "status": "Service Unavailable",
+              "code": 503,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "status": "not ready",
+                "reason": "Database connection failed"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Liveness Check",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/health/liveness",
+              "host": ["{{baseUrl}}"],
+              "path": ["health", "liveness"]
+            },
+            "description": "Checks if the service is running"
+          },
+          "response": [
+            {
+              "name": "Service Alive",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{baseUrl}}/health/liveness",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["health", "liveness"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "status": "alive"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Calculations",
+      "description": "Endpoints for calculating locate fees",
+      "item": [
+        {
+          "name": "Calculate Locate Fee (POST)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/calculate-locate",
+              "host": ["{{baseUrl}}"],
+              "path": ["calculate-locate"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ticker\": \"AAPL\",\n  \"position_value\": 100000,\n  \"loan_days\": 30,\n  \"client_id\": \"xyz123\"\n}"
+            },
+            "description": "Calculates the fee for locating and borrowing securities based on ticker, position value, loan duration, and client ID"
+          },
+          "response": [
+            {
+              "name": "Successful Calculation",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/calculate-locate",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["calculate-locate"]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ticker\": \"AAPL\",\n  \"position_value\": 100000,\n  \"loan_days\": 30,\n  \"client_id\": \"xyz123\"\n}"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "status": "success",
+                "total_fee": 3428.77,
+                "breakdown": {
+                  "borrow_cost": 3195.34,
+                  "markup": 188.53,
+                  "transaction_fees": 40.9
+                },
+                "borrow_rate_used": 0.19
+              }
+            },
+            {
+              "name": "Invalid Parameters",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/calculate-locate",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["calculate-locate"]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ticker\": \"AAPL\",\n  \"position_value\": -100000,\n  \"loan_days\": 30,\n  \"client_id\": \"xyz123\"\n}"
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "status": "error",
+                "error": "Invalid parameter: position_value must be greater than 0",
+                "error_code": "INVALID_PARAMETER",
+                "validation_errors": [
+                  {
+                    "field": "position_value",
+                    "location": "body",
+                    "message": "Value must be greater than 0"
+                  }
+                ],
+                "valid_params": ["ticker", "position_value>0", "loan_days>0", "client_id"]
+              }
+            },
+            {
+              "name": "Client Not Found",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/calculate-locate",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["calculate-locate"]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ticker\": \"AAPL\",\n  \"position_value\": 100000,\n  \"loan_days\": 30,\n  \"client_id\": \"invalid_client\"\n}"
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "status": "error",
+                "error": "Client not found: invalid_client",
+                "error_code": "CLIENT_NOT_FOUND"
+              }
+            },
+            {
+              "name": "Ticker Not Found",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/calculate-locate",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["calculate-locate"]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ticker\": \"INVALID\",\n  \"position_value\": 100000,\n  \"loan_days\": 30,\n  \"client_id\": \"xyz123\"\n}"
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "status": "error",
+                "error": "Ticker not found: INVALID",
+                "error_code": "TICKER_NOT_FOUND"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Calculate Locate Fee (GET)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/calculate-locate?ticker=AAPL&position_value=100000&loan_days=30&client_id=xyz123",
+              "host": ["{{baseUrl}}"],
+              "path": ["calculate-locate"],
+              "query": [
+                {
+                  "key": "ticker",
+                  "value": "AAPL",
+                  "description": "Stock symbol"
+                },
+                {
+                  "key": "position_value",
+                  "value": "100000",
+                  "description": "Notional value of short position in USD"
+                },
+                {
+                  "key": "loan_days",
+                  "value": "30",
+                  "description": "Duration of borrow in days"
+                },
+                {
+                  "key": "client_id",
+                  "value": "xyz123",
+                  "description": "Client identifier for fee structure"
+                }
+              ]
+            },
+            "description": "Calculates the fee for locating and borrowing securities using query parameters"
+          },
+          "response": [
+            {
+              "name": "Successful Calculation",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{baseUrl}}/calculate-locate?ticker=AAPL&position_value=100000&loan_days=30&client_id=xyz123",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["calculate-locate"],
+                  "query": [
+                    {
+                      "key": "ticker",
+                      "value": "AAPL"
+                    },
+                    {
+                      "key": "position_value",
+                      "value": "100000"
+                    },
+                    {
+                      "key": "loan_days",
+                      "value": "30"
+                    },
+                    {
+                      "key": "client_id",
+                      "value": "xyz123"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "status": "success",
+                "total_fee": 3428.77,
+                "breakdown": {
+                  "borrow_cost": 3195.34,
+                  "markup": 188.53,
+                  "transaction_fees": 40.9
+                },
+                "borrow_rate_used": 0.19
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Borrow Rates",
+      "description": "Endpoints for retrieving borrow rates",
+      "item": [
+        {
+          "name": "Get Borrow Rate",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/rates/AAPL?use_cache=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["rates", "AAPL"],
+              "query": [
+                {
+                  "key": "use_cache",
+                  "value": "true",
+                  "description": "Whether to use cached data"
+                }
+              ]
+            },
+            "description": "Retrieves the current borrow rate for a specific ticker"
+          },
+          "response": [
+            {
+              "name": "Successful Response",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{baseUrl}}/rates/AAPL?use_cache=true",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["rates", "AAPL"],
+                  "query": [
+                    {
+                      "key": "use_cache",
+                      "value": "true"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "status": "success",
+                "ticker": "AAPL",
+                "current_rate": 0.05,
+                "borrow_status": "EASY",
+                "volatility_index": 18.5,
+                "event_risk_factor": 2,
+                "last_updated": "2023-10-15T14:30:22Z"
+              }
+            },
+            {
+              "name": "Ticker Not Found",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{baseUrl}}/rates/INVALID?use_cache=true",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["rates", "INVALID"],
+                  "query": [
+                    {
+                      "key": "use_cache",
+                      "value": "true"
+                    }
+                  ]
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "status": "error",
+                "error": "Ticker not found: INVALID",
+                "error_code": "TICKER_NOT_FOUND"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Borrow Rate (Alternative Path)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/rates/ticker/AAPL?use_cache=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["rates", "ticker", "AAPL"],
+              "query": [
+                {
+                  "key": "use_cache",
+                  "value": "true",
+                  "description": "Whether to use cached data"
+                }
+              ]
+            },
+            "description": "Alternative path to retrieve the current borrow rate for a specific ticker"
+          },
+          "response": [
+            {
+              "name": "Successful Response",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{baseUrl}}/rates/ticker/AAPL?use_cache=true",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["rates", "ticker", "AAPL"],
+                  "query": [
+                    {
+                      "key": "use_cache",
+                      "value": "true"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "status": "success",
+                "ticker": "AAPL",
+                "current_rate": 0.05,
+                "borrow_status": "EASY",
+                "volatility_index": 18.5,
+                "event_risk_factor": 2,
+                "last_updated": "2023-10-15T14:30:22Z"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Calculate Custom Borrow Rate",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/rates/AAPL/calculate?volatility_index=25&event_risk_factor=5",
+              "host": ["{{baseUrl}}"],
+              "path": ["rates", "AAPL", "calculate"],
+              "query": [
+                {
+                  "key": "volatility_index",
+                  "value": "25",
+                  "description": "Custom volatility index value"
+                },
+                {
+                  "key": "event_risk_factor",
+                  "value": "5",
+                  "description": "Custom event risk factor (0-10)"
+                }
+              ]
+            },
+            "description": "Calculates a custom borrow rate with specific volatility and event risk parameters"
+          },
+          "response": [
+            {
+              "name": "Successful Calculation",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{baseUrl}}/rates/AAPL/calculate?volatility_index=25&event_risk_factor=5",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["rates", "AAPL", "calculate"],
+                  "query": [
+                    {
+                      "key": "volatility_index",
+                      "value": "25"
+                    },
+                    {
+                      "key": "event_risk_factor",
+                      "value": "5"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "status": "success",
+                "ticker": "AAPL",
+                "current_rate": 0.0875,
+                "borrow_status": "EASY",
+                "volatility_index": 25,
+                "event_risk_factor": 5,
+                "last_updated": "2023-10-15T14:30:22Z"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Borrow Rates by Status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/rates/status/HARD?skip=0&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["rates", "status", "HARD"],
+              "query": [
+                {
+                  "key": "skip",
+                  "value": "0",
+                  "description": "Number of records to skip for pagination"
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Maximum number of records to return"
+                }
+              ]
+            },
+            "description": "Retrieves borrow rates for stocks with a specific borrow status"
+          },
+          "response": [
+            {
+              "name": "Successful Response",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{baseUrl}}/rates/status/HARD?skip=0&limit=20",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["rates", "status", "HARD"],
+                  "query": [
+                    {
+                      "key": "skip",
+                      "value": "0"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": [
+                {
+                  "status": "success",
+                  "ticker": "GME",
+                  "current_rate": 0.75,
+                  "borrow_status": "HARD",
+                  "volatility_index": 45.2,
+                  "event_risk_factor": 8,
+                  "last_updated": "2023-10-15T14:30:22Z"
+                },
+                {
+                  "status": "success",
+                  "ticker": "AMC",
+                  "current_rate": 0.65,
+                  "borrow_status": "HARD",
+                  "volatility_index": 38.7,
+                  "event_risk_factor": 7,
+                  "last_updated": "2023-10-15T14:30:22Z"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Configuration",
+      "description": "Endpoints for retrieving system configuration",
+      "item": [
+        {
+          "name": "Get API Configuration",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/config",
+              "host": ["{{baseUrl}}"],
+              "path": ["config"]
+            },
+            "description": "Retrieves the current API configuration settings"
+          },
+          "response": [
+            {
+              "name": "Successful Response",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{baseUrl}}/config",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["config"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "status": "success",
+                "config": {
+                  "api_version": "1.0.0",
+                  "supported_features": ["borrow_rates", "locate_fees", "volatility_adjustment"],
+                  "rate_limits": {
+                    "default": 60,
+                    "premium": 300
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": ["// You can add pre-request scripts here to set variables, headers, etc."]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Default tests for all requests",
+          "pm.test(\"Status code is 200 OK or 201 Created or 204 No Content\", function () {",
+          "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204, 400, 401, 403, 404, 429, 500, 503]);",
+          "});",
+          "",
+          "pm.test(\"Response time is acceptable\", function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(500);",
+          "});",
+          "",
+          "if (pm.response.headers.get(\"Content-Type\") && pm.response.headers.get(\"Content-Type\").includes(\"application/json\")) {",
+          "    pm.test(\"Response is valid JSON\", function () {",
+          "        pm.response.to.be.json;",
+          "    });",
+          "}"
+        ]
+      }
+    }
+  ]
+}
