@@ -1,0 +1,223 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-service
+  namespace: borrow-rate-engine
+  labels:
+    app: borrow-rate-engine
+    component: data-service
+    environment: ${ENV}
+    managed-by: kustomize
+  annotations:
+    description: "Data Service for Borrow Rate & Locate Fee Pricing Engine"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: borrow-rate-engine
+      component: data-service
+  template:
+    metadata:
+      labels:
+        app: borrow-rate-engine
+        component: data-service
+        environment: ${ENV}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: data-service
+        image: ${ECR_REPO}/data-service:${VERSION}
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2000m"
+            memory: "6Gi"
+        env:
+        - name: ENVIRONMENT
+          value: ${ENV}
+        - name: LOG_LEVEL
+          value: ${LOG_LEVEL}
+        - name: CACHE_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: data-service-config
+              key: CACHE_SERVICE_URL
+        - name: ENABLE_METRICS
+          valueFrom:
+            configMapKeyRef:
+              name: data-service-config
+              key: ENABLE_METRICS
+        - name: ENABLE_TRACING
+          valueFrom:
+            configMapKeyRef:
+              name: data-service-config
+              key: ENABLE_TRACING
+        - name: DB_POOL_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: data-service-config
+              key: DB_POOL_SIZE
+        - name: DB_MAX_OVERFLOW
+          valueFrom:
+            configMapKeyRef:
+              name: data-service-config
+              key: DB_MAX_OVERFLOW
+        - name: DB_POOL_TIMEOUT
+          valueFrom:
+            configMapKeyRef:
+              name: data-service-config
+              key: DB_POOL_TIMEOUT
+        - name: DB_POOL_RECYCLE
+          valueFrom:
+            configMapKeyRef:
+              name: data-service-config
+              key: DB_POOL_RECYCLE
+        - name: SECLEND_API_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: data-service-config
+              key: SECLEND_API_BASE_URL
+        - name: MARKET_API_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: data-service-config
+              key: MARKET_API_BASE_URL
+        - name: EVENT_API_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: data-service-config
+              key: EVENT_API_BASE_URL
+        - name: ENABLE_CIRCUIT_BREAKER
+          valueFrom:
+            configMapKeyRef:
+              name: data-service-config
+              key: ENABLE_CIRCUIT_BREAKER
+        - name: ENABLE_FALLBACK
+          valueFrom:
+            configMapKeyRef:
+              name: data-service-config
+              key: ENABLE_FALLBACK
+        - name: ENABLE_CACHE
+          valueFrom:
+            configMapKeyRef:
+              name: data-service-config
+              key: ENABLE_CACHE
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: database-credentials
+              key: url
+        - name: DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: database-credentials
+              key: host
+        - name: DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: database-credentials
+              key: port
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: database-credentials
+              key: database
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: database-credentials
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: database-credentials
+              key: password
+        - name: SECLEND_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: external-api-credentials
+              key: seclend_api_key
+        - name: MARKET_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: external-api-credentials
+              key: market_api_key
+        - name: EVENT_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: external-api-credentials
+              key: event_api_key
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 2
+          successThreshold: 1
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/config
+        - name: tmp-volume
+          mountPath: /tmp
+      volumes:
+      - name: config-volume
+        configMap:
+          name: data-service-config
+      - name: tmp-volume
+        emptyDir: {}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: component
+                  operator: In
+                  values:
+                  - data-service
+              topologyKey: kubernetes.io/hostname
+          - weight: 50
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: component
+                  operator: In
+                  values:
+                  - data-service
+              topologyKey: topology.kubernetes.io/zone
+      terminationGracePeriodSeconds: 30
