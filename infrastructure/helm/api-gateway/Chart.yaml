@@ -1,0 +1,32 @@
+apiVersion: v2
+name: api-gateway
+description: API Gateway for the Borrow Rate & Locate Fee Pricing Engine
+type: application
+version: 1.0.0
+appVersion: 1.0.0
+keywords:
+  - api
+  - gateway
+  - borrow-rate
+  - locate-fee
+  - financial
+home: https://github.com/example/borrow-rate-engine
+sources:
+  - https://github.com/example/borrow-rate-engine
+maintainers:
+  - name: DevOps Team
+    email: devops@example.com
+dependencies:
+  - name: common
+    repository: https://charts.bitnami.com/bitnami
+    version: ^1.0.0
+    condition: common.enabled
+    tags:
+      - bitnami-common
+  - name: redis
+    repository: https://charts.bitnami.com/bitnami
+    version: ^17.0.0
+    condition: redis.enabled
+    tags:
+      - cache
+      - rate-limiting
