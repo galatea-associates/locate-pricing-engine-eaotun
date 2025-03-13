@@ -1,0 +1,34 @@
+* @repo-admins
+
+# Backend service implementation including API, calculation engine, and data services
+src/backend/ @backend-team
+
+# Core calculation logic for borrow rates and fees requiring financial domain expertise
+src/backend/services/calculation/ @financial-engineers
+
+# API endpoints and interface definitions
+src/backend/api/ @api-team
+
+# Database models, migrations, and data access layer
+src/backend/db/ @data-team
+
+# Test infrastructure, test cases, and test utilities
+src/test/ @qa-team
+
+# Infrastructure as code, Kubernetes configurations, and deployment resources
+infrastructure/ @devops-team
+
+# Documentation files including API specs, architecture docs, and operational guides
+docs/ @documentation-team
+
+# CI/CD pipeline configurations
+.github/workflows/ @devops-team
+
+# External API integrations with market data providers
+src/backend/services/external/ @integration-team
+
+# Security-related implementations
+src/backend/core/security.py @security-team
+
+# Authentication and authorization implementations
+src/backend/core/auth.py @security-team
