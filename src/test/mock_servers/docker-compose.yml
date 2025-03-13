@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # Mock server for the SecLend API providing borrow rates for securities
+  seclend-api:
+    build:
+      context: ./seclend_api
+      dockerfile: ../docker/Dockerfile.mock_servers
+    ports:
+      - "8001:8001"
+    environment:
+      - MOCK_API_PORT=8001
+      - LOG_LEVEL=INFO
+      - FAILURE_RATE=0  # Percentage of requests that will simulate failures
+      - DELAY_RATE=0    # Percentage of requests that will simulate delays
+    healthcheck:
+      test: curl --fail http://localhost:8001/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - mock-api-network
+
+  # Mock server for the Market Volatility API providing volatility metrics
+  market-api:
+    build:
+      context: ./market_api
+      dockerfile: ../docker/Dockerfile.mock_servers
+    ports:
+      - "8002:8002"
+    environment:
+      - MOCK_API_PORT=8002
+      - LOG_LEVEL=INFO
+      - FAILURE_RATE=0
+      - DELAY_RATE=0
+    healthcheck:
+      test: curl --fail http://localhost:8002/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - mock-api-network
+
+  # Mock server for the Event Calendar API providing event risk data
+  event-api:
+    build:
+      context: ./event_api
+      dockerfile: ../docker/Dockerfile.mock_servers
+    ports:
+      - "8003:8003"
+    environment:
+      - MOCK_API_PORT=8003
+      - LOG_LEVEL=INFO
+      - FAILURE_RATE=0
+      - DELAY_RATE=0
+    healthcheck:
+      test: curl --fail http://localhost:8003/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - mock-api-network
+
+networks:
+  mock-api-network:
+    driver: bridge
+
+# Usage examples:
+# Start all mock servers:                docker-compose up
+# Start a specific mock server:          docker-compose up seclend-api
+# Start in detached mode:                docker-compose up -d
+# Stop all mock servers:                 docker-compose down
+# Simulate failures (50% failure rate):  FAILURE_RATE=50 docker-compose up
+# Simulate delays (30% delay rate):      DELAY_RATE=30 docker-compose up
